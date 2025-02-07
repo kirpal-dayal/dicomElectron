@@ -1,0 +1,18 @@
+directories:
+  output: dist
+  buildResources: assets
+files:
+  - filter:
+      - build/**/*
+extraMetadata:
+  main: build/electron.js
+appId: com.electron3.app
+productName: Electron React App
+win:
+  target: nsis
+  icon: public/icon.png
+mac:
+  target: dmg
+  icon: public/icon.icns
+extends: react-cra
+electronVersion: 33.3.1

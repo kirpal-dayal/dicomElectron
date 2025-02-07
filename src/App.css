@@ -1,0 +1,360 @@
+.App {
+  text-align: center;
+}
+
+.App-logo {
+  height: 40vmin;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .App-logo {
+    animation: App-logo-spin infinite 20s linear;
+  }
+}
+
+.App-header {
+  background-color: #9b2121; 
+  color: black;            
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-size: calc(10px + 2vmin);
+}
+
+.App-link {
+  color: #61dafb;
+}
+
+@keyframes App-logo-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* App.css */
+.app-container {
+  text-align: center;
+  font-family: Arial, sans-serif;
+  padding: 20px;
+}
+
+.home-container {
+  background-color: #f5f5f5;
+  padding: 50px;
+  border-radius: 10px;
+}
+
+.second-container {
+  background-color: #d1f7d6;
+  padding: 50px;
+  border-radius: 10px;
+}
+
+.btn {
+  padding: 10px 20px;
+  margin-top: 20px;
+  font-size: 16px;
+  cursor: pointer;
+  border: none;
+  border-radius: 5px;
+  background-color: #007bff;
+  color: white;
+  transition: background-color 0.3s;
+}
+
+.btn:hover {
+  background-color: #0056b3;
+}
+
+/* Users */
+body {
+  margin: 0;
+  font-family: Arial, sans-serif;
+  background-color: #f5f5f5;
+}
+
+.login-container {
+  text-align: center;
+  background-color: #ffffff;
+  padding: 50px;
+  margin: 50px auto;
+  border-radius: 10px;
+  max-width: 400px;
+  box-shadow: 0px 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.form-group {
+  margin-bottom: 20px;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 14px;
+}
+
+.form-group input {
+  width: 100%;
+  padding: 10px;
+  font-size: 14px;
+  border: 1px solid #ccc;
+  border-radius: 5px;
+}
+
+.btn {
+  padding: 10px 20px;
+  font-size: 16px;
+  cursor: pointer;
+  border: none;
+  border-radius: 5px;
+  background-color: #007bff;
+  color: white;
+  transition: background-color 0.3s ease;
+}
+
+.btn:hover {
+  background-color: #0056b3;
+}
+
+.user-container, .doctor-container, .admin-container {
+  text-align: center;
+  padding: 50px;
+  background-color: #ffffff;
+  margin: 50px auto;
+  width: 95%; /* Asegura que abarque todo el ancho */
+  border-radius: 10px;
+  box-shadow: 0px 4px 6px rgba(0, 0, 0, 0.1);
+
+}
+
+h1 {
+  font-size: 2em;
+  margin-bottom: 20px;
+}
+
+p {
+  font-size: 1.2em;
+}
+
+/* navbar */
+.navbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background-color: #333;
+  color: white;
+  padding: 10px 20px;
+  box-shadow: 0px 4px 6px rgba(0, 0, 0, 0.1);
+  width: 100%; /* Asegura que la barra abarque todo el ancho de la ventana */
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 1000;
+  box-sizing: border-box; /* Incluye padding en el ancho total */
+}
+
+.navbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 20px;
+  color: white;
+  box-shadow: 0px 4px 6px rgba(0, 0, 0, 0.1);
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  z-index: 1000;
+  box-sizing: border-box;
+}
+
+/* Colores para cada tipo de usuario */
+.navbar.admin {
+  background-color: #eb7e65; /* Naranja para administrador */
+}
+
+.navbar.doctor {
+  background-color: #3c9150; /* Verde para doctor */
+}
+
+.navbar.user {
+  background-color: #5794bd; /* Azul para usuario normal */
+}
+
+.navbar-links {
+  display: flex;
+  justify-content: space-between; /* Asegura que los botones estén distribuidos uniformemente */
+  align-items: middle; /* Centra los botones verticalmente */
+  flex-wrap: wrap; /* Permite que los botones salten a una nueva línea si es necesario */
+  max-width: 90%; /* Limita el ancho al tamaño de la barra de navegación */
+  gap: 10px; /* Espaciado uniforme entre los botones */
+  overflow: hidden; /* Evita que los elementos se desborden */
+}
+
+.navbar-btn {
+  padding: 12px 20px; /* Más espacio interno para un diseño más agradable */
+  font-size: 16px; /* Tamaño de texto más grande */
+  color: white;
+  background-color: #007bff;
+  border: none;
+  border-radius: 8px; /* Bordes más redondeados */
+  cursor: pointer;
+  transition: background-color 0.3s ease, transform 0.2s ease; /* Transiciones suaves */
+}
+
+.navbar-btn:hover {
+  background-color: #0056b3; /* Cambio de color al pasar el mouse */
+  transform: translateY(-2px); /* Ligero movimiento hacia arriba */
+}
+
+.navbar-btn:active {
+  transform: translateY(0); /* Restaura la posición al hacer clic */
+}
+
+.navbar-logo {
+  font-size: 18px;
+  font-weight: bold;
+  flex-shrink: 0; /* Evita que el logo se encoja */
+}
+
+/* notificacion */
+.notification {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  background-color: #007bff;
+  color: white;
+  padding: 15px 20px;
+  border-radius: 8px;
+  box-shadow: 0px 4px 6px rgba(0, 0, 0, 0.1);
+  z-index: 1000;
+  animation: fade-out 5s forwards; /* Animación para desaparecer gradualmente */
+}
+
+@keyframes fade-out {
+  0% {
+    opacity: 1;
+  }
+  90% {
+    opacity: 0.2;
+  }
+  100% {
+    opacity: 0;
+    display: none;
+  }
+}
+
+/* formulario historia clinica etc */
+.form-container {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background-color: white;
+  padding: 20px;
+  box-shadow: 0px 4px 6px rgba(0, 0, 0, 0.1);
+  border-radius: 10px;
+  z-index: 1000;
+}
+
+form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  font-size: 14px;
+}
+
+button {
+  margin-top: 10px;
+  padding: 10px 15px;
+  font-size: 14px;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+button[type="submit"] {
+  background-color: #28a745;
+  color: white;
+}
+
+button[type="button"] {
+  background-color: #dc3545;
+  color: white;
+}
+
+/* tabla pacientes registros */
+.records-container {
+  margin: 20px;
+  padding: 20px;
+  background-color: #f9f9f9;
+  border-radius: 10px;
+  box-shadow: 0px 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+table th,
+table td {
+  border: 1px solid #ddd;
+  padding: 8px;
+  text-align: left;
+}
+
+table th {
+  background-color: #007bff;
+  color: white;
+}
+
+/* pagina de vista pacientes registros */
+
+.view-container {
+  display: flex;
+  height: 100vh;
+}
+
+.left-panel,
+.right-panel {
+  flex: 1;
+  padding: 20px;
+  overflow-y: auto;
+}
+
+.left-panel {
+  background-color: #f9f9f9;
+  border-right: 1px solid #ddd;
+}
+
+.right-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background-color: #ffffff;
+}
+
+.image-placeholder {
+  width: 80%;
+  height: 50%;
+  background-color: #ccc;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  color: #555;
+  border-radius: 8px;
+}
