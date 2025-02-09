@@ -10,7 +10,8 @@ function AdminView() {
   const navigate = useNavigate(); // Inicializa navigate
 
   const username = 'Admin';
-  const menuOptions = ['Crear usuario', 'Borrar', 'Modificar', 'Salir'];
+  //const menuOptions = ['Crear usuario', 'Borrar', 'Modificar', 'Salir'];
+  const menuOptions = ['Crear usuario', 'Borrar', 'Ver perfil', 'Salir'];
 
   // Carga registros desde localStorage al montar el componente
   useEffect(() => {
@@ -37,6 +38,10 @@ function AdminView() {
       <div className="admin-container">
         <h1>Bienvenido, {username}</h1>
         <p>Aquí puedes gestionar el sistema.</p>
+        <div>
+          <input type='text' placeholder='Escibe el ID o nombre de un usuario...'></input>
+          <button>Buscar</button>
+        </div>
       </div>
 
       {/* Formulario para agregar registros */}
@@ -56,20 +61,26 @@ function AdminView() {
           <table>
             <thead>
               <tr>
+                <th>ID</th>
+                <th>Nombre</th>
+                <th>Tipo de usuario</th>
+                <th>Acciones</th>
+                {/*
                 <th>Nombre</th>
                 <th>NSS</th>
                 <th>Fecha de Nacimiento</th>
                 <th>Sexo</th>
                 <th>Acciones</th>
+                */}
               </tr>
             </thead>
             <tbody>
               {records.map((record, index) => (
                 <tr key={index}>
-                  <td>{record.name}</td>
                   <td>{record.nss}</td>
-                  <td>{record.birthDate}</td>
-                  <td>{record.sex}</td>
+                  <td>{record.name}</td>
+                  <td>{record.name}</td>
+                  {/*<td>{record.sex}</td>*/}
                   <td>
                     <button onClick={() => navigate(`/view/${index}`)}>
                       Vista
