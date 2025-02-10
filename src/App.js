@@ -1,11 +1,11 @@
-// src/App.js
 import React from 'react';
 import { HashRouter as Router, Routes, Route } from 'react-router-dom';
 import Home from './components/Home';
 import UserView from './components/UserView';
 import DoctorView from './components/DoctorView';
 import AdminView from './components/AdminView';
-import ViewPatient from './components/ViewPatient'; // Nuevo componente de vista
+import ViewPatient from './components/ViewPatient';
+import AnalisisDetallado from './components/AnalisisDetallado'; // Nueva vista
 import './App.css';
 
 function App() {
@@ -20,6 +20,10 @@ function App() {
 
         {/* Nueva ruta para vista del paciente */}
         <Route path="/view/:id" element={<ViewPatient />} />
+        <Route path="/view-patient/:id" element={<ViewPatient />} />
+
+        {/* 🔹 Nueva ruta para análisis detallado */}
+        <Route path="/analisis-detallado/:id" element={<AnalisisDetallado />} />
       </Routes>
     </Router>
   );
