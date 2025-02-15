@@ -37,7 +37,9 @@ function StudyView() {
 
       {/* 🔹 Botones de la esquina superior derecha */}
       <div className="top-right-buttons">
+        {/* "Cargar nva imagen" en lugar de "Elegir imagen" */}
         <button className="red-btn">Elegir Imagen</button>
+        "Calcular volumen"
         <button className="red-btn">Procesar Imagen</button>
       </div>
 
@@ -82,7 +84,8 @@ function StudyView() {
 
       {/* 🔹 Controles de Procesamiento */}
       <div className="controls-container">
-        <button className="control-btn">Modificar Máscara</button>
+        {/* Quitar estos botones */}
+        <button className="control-btn">Modificar Máscara</button> 
         <button className="control-btn">Guardar</button>
       </div>
 
