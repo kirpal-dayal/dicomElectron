@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { FaCloudUploadAlt } from 'react-icons/fa'; // Importando el ícono de carga
 import defaultImage from '../assets/images/image.jpg';
 
 function ViewPatient() {
@@ -51,6 +52,15 @@ function ViewPatient() {
     data[recordId] = record;
     localStorage.setItem('patients', JSON.stringify(data));
     alert('Cambios guardados correctamente');
+  };
+
+  // Función que maneja el cambio de archivo (actualmente no hace nada)
+  const handleFileChange = (event) => {
+    const file = event.target.files[0];
+    if (file) {
+      console.log('Archivo seleccionado:', file);
+      // Aquí podrías hacer algo con el archivo, como previsualizarlo o almacenarlo
+    }
   };
 
   if (!record) return <p>Cargando...</p>;
@@ -113,24 +123,38 @@ function ViewPatient() {
           {Array.from({ length: 4 }).map((_, index) => (
             <div key={index} className="grid-item">
               <div className="image-container">
-                <img
-                  src={defaultImage}
-                  alt={`Imagen ${index + 1}`}
-                  className="grid-image"
-                  onClick={() => navigate(`/estudio/${id}/${index + 1}`)}
-                  style={{ cursor: 'pointer' }}
-                />
+                {/* Si es la cuarta imagen, mostramos el ícono y el texto */}
+                {index === 3 ? (
+                  <div className="upload-icon">
+                    <label htmlFor="file-upload" style={{ cursor: 'pointer' }}>
+                      <FaCloudUploadAlt size={50} color="#007bff" />
+                      <p>Arrastra o selecciona archivos</p>
+                    </label>
+                    <input
+                      id="file-upload"
+                      type="file"
+                      style={{ display: 'none' }} // Ocultamos el input
+                      onChange={handleFileChange} // Llamamos a la función cuando se selecciona un archivo
+                    />
+                  </div>
+                ) : (
+                  <img
+                    src={defaultImage}
+                    alt={`Imagen ${index + 1}`}
+                    className="grid-image"
+                    onClick={() => navigate(`/estudio/${id}/${index + 1}`)}
+                    style={{ cursor: 'pointer' }}
+                  />
+                )}
               </div>
-              {/* MOD: "Fecha de estudio" como texto inmovil en lugar de textarea 
-                "Toque la imagen para mayor informacion"
-                Dar opción de cargar nuevo dicom para abrir el explorador, directamente las imagenes se procesan*/}
-              <textarea 
-                placeholder="Fecha del estudio..."
-                value={record[`imageDesc${index + 1}`] || ''}
-                onChange={(e) =>
-                  setRecord({ ...record, [`imageDesc${index + 1}`]: e.target.value })
-                }
-              />
+
+              {/* Mostrar texto estático debajo de la imagen solo si no es la cuarta */}
+              {index !== 3 && (
+                <div className="study-text">
+                  <label><strong>Fecha de Estudio:</strong> {record[`studyDate${index + 1}`] || 'No disponible'}</label>
+                  <label><strong>Tratamiento:</strong> {record[`treatment${index + 1}`] || 'No disponible'}</label>
+                </div>
+              )}
             </div>
           ))}
         </div>
