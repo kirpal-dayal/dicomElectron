@@ -401,11 +401,13 @@ textarea {
 }
 
 /* analisisDetallado */
+/* Contenedor principal */
 .analisis-container {
   text-align: center;
   padding: 20px;
 }
 
+/* Contenedor de las imágenes, usando Flexbox para distribución */
 .image-placeholder-container {
   display: flex;
   justify-content: space-between;
@@ -413,52 +415,123 @@ textarea {
   margin-bottom: 20px;
 }
 
+/* Cada imagen tendrá el 48% del ancho del contenedor */
 .image-placeholder {
-  flex: 1;
-  height: 200px;
-  background-color: #ddd;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 14px;
-  font-weight: bold;
-  color: #555;
-  border-radius: 5px;
-}
-
-.analysis-section {
+  width: 48%;  /* Ajustar al 48% para que las imágenes ocupen la mitad */
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 15px;
+  justify-content: flex-start;
+  background-color: #ddd;
+  border-radius: 5px;
+  padding: 10px;
 }
 
+/* Ajustar el tamaño de la imagen */
+.image-placeholder img {
+  max-width: 90%;  /* Limitar a un 90% del ancho del contenedor */
+  height: auto;
+  object-fit: contain;  /* Mantener la proporción de la imagen */
+  margin-bottom: 10px;  /* Separar la imagen del formulario de selección */
+}
+
+/* Estilo para el campo de selección y los resultados */
 .analysis-row {
+  margin-top: 10px;
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 15px;
+  gap: 5px;
+}
+
+.select {
+  padding: 5px;
+  font-size: 14px;
 }
 
 .result-box {
-  width: 200px;
-  padding: 10px;
+  padding: 5px;
   background-color: #f4f4f4;
   border: 1px solid #ccc;
-  text-align: center;
   font-weight: bold;
+  text-align: center;
+  width: 100%;
+  margin-top: 5px;
 }
 
+/* Estilo para el botón */
+button {
+  margin-top: 20px;
+  padding: 10px 20px;
+  background-color: #007bff;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+button:hover {
+  background-color: #0056b3;
+}
+
+/* StudyView */
 /* StudyView */
 /* Contenedor General */
 .study-container {
   display: flex;
-  flex-direction: column;
-  align-items: center;
   padding: 20px;
   position: relative;
+  height: 100vh; /* Aseguramos que ocupe toda la pantalla */
 }
 
-/* 🔹 Botones en la Esquina Derecha */
+/* 🔹 Parte Izquierda: Contenedor de Imágenes (70% del ancho) */
+.image-container {
+  flex: 7; /* La parte de imágenes ocupará el 70% del ancho */
+  display: flex;
+  flex-direction: column; /* Apilar las imágenes hacia abajo */
+  gap: 10px;
+  padding: 20px;
+  overflow-y: auto; /* Desplazamiento vertical en las imágenes */
+}
+
+/* 🔹 Imagen */
+.study-image {
+  width: 100%;
+  max-width: 400px; /* Ajustamos el tamaño máximo de cada imagen */
+  height: auto;
+  object-fit: contain;
+  border: 2px solid #ddd;
+  border-radius: 8px;
+}
+
+/* 🔹 Parte Derecha: Contenedor de Datos (30% del ancho) */
+.data-container {
+  flex: 3; /* La parte de datos ocupará el 30% del ancho */
+  padding: 20px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+/* 🔹 Título del Estudio */
+.data-container h3 {
+  font-size: 22px;
+  font-weight: bold;
+  margin-bottom: 15px;
+}
+
+/* 🔹 Campos de Datos */
+.data-field {
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+.data-field strong {
+  color: #007bff;
+}
+
+/* 🔹 Botones en la Parte Derecha */
 .top-right-buttons {
   position: absolute;
   top: 10px;
@@ -503,32 +576,6 @@ textarea {
   background-color: rgba(0, 0, 0, 0.9);
 }
 
-/* 🔹 Contenedor de Vistas */
-.views-container {
-  display: flex;
-  justify-content: space-between;
-  gap: 10px;
-  width: 100%;
-}
-
-/* 🔹 Vista de cada Imagen */
-.image-view {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  width: 33.33%;
-}
-
-/* 🔹 Imagen (Abarca un tercio del ancho) */
-.study-image {
-  width: 100%;
-  max-width: 400px;
-  height: auto;
-  object-fit: contain;
-  border: 2px solid #ddd;
-  border-radius: 8px;
-}
-
 /* 🔹 Sliders */
 input[type="range"] {
   margin-top: 10px;
@@ -571,6 +618,24 @@ input[type="range"] {
 
 .btn-back:hover {
   background-color: #c9302c;
+}
+
+.upload-icon {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 20px;
+  border: 2px dashed #007bff;
+  border-radius: 8px;
+  background-color: #f4f4f4;
+}
+
+.upload-icon p {
+  margin-top: 10px;
+  color: #007bff;
+  font-size: 14px;
 }
 
 /* 🔹 Contenedor del Modal */
