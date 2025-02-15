@@ -11,22 +11,25 @@ function ViewPatient() {
     const storedPatients = JSON.parse(localStorage.getItem('patients')) || [];
     const storedRecords = JSON.parse(localStorage.getItem('records')) || [];
 
-    let data = [];
-
-    // Convertir `id` a número
     const recordId = parseInt(id, 10);
 
-    // Determina si cargar desde "patients" o "records"
-    if (window.location.pathname.includes('view-patient')) {
-      data = storedPatients; // Se accede desde DoctorView
-    } else {
-      data = storedRecords; // Se accede desde AdminView
+    console.log('📌 Pacientes en localStorage:', storedPatients);
+    console.log('📌 Registros en localStorage:', storedRecords);
+    console.log('📌 Intentando acceder a índice:', recordId);
+
+    // 🔹 Validar si el ID es válido
+    if (isNaN(recordId) || recordId < 0) {
+      alert('Error: ID inválido.');
+      navigate('/doctor');
+      return;
     }
 
-    // Validar si el registro existe
-    if (!data || !Array.isArray(data) || !data[recordId]) {
-      alert('Registro no encontrado.');
-      navigate(window.location.pathname.includes('view-patient') ? '/doctor' : '/admin');
+    let data = storedPatients; // 🔹 Usamos siempre "patients" para DoctorView
+
+    // 🔹 Verificar que el índice esté dentro del rango correcto
+    if (!Array.isArray(data) || recordId >= data.length) {
+      alert(`Registro no encontrado en índice: ${recordId}`);
+      navigate('/doctor');
       return;
     }
 
@@ -36,18 +39,17 @@ function ViewPatient() {
   // Guardar los cambios en localStorage
   const handleSave = () => {
     const storedPatients = JSON.parse(localStorage.getItem('patients')) || [];
-    const storedRecords = JSON.parse(localStorage.getItem('records')) || [];
 
     const recordId = parseInt(id, 10);
-    let data = window.location.pathname.includes('view-patient') ? storedPatients : storedRecords;
+    let data = storedPatients;
 
-    if (!data || !Array.isArray(data) || !data[recordId]) {
+    if (!Array.isArray(data) || recordId >= data.length) {
       alert('Error al guardar. Registro no encontrado.');
       return;
     }
 
     data[recordId] = record;
-    localStorage.setItem(window.location.pathname.includes('view-patient') ? 'patients' : 'records', JSON.stringify(data));
+    localStorage.setItem('patients', JSON.stringify(data));
     alert('Cambios guardados correctamente');
   };
 
@@ -94,85 +96,6 @@ function ViewPatient() {
             </select>
           </label>
 
-          {/* 🔹 Sección de Antecedentes */}
-          <fieldset>
-            <legend>Antecedentes Médicos</legend>
-            <label>
-              <input
-                type="checkbox"
-                checked={record.diabetes || false}
-                onChange={(e) => setRecord({ ...record, diabetes: e.target.checked })}
-              />
-              Diabetes Mellitus
-            </label>
-            <label>
-              <input
-                type="checkbox"
-                checked={record.hypertension || false}
-                onChange={(e) => setRecord({ ...record, hypertension: e.target.checked })}
-              />
-              Hipertensión Arterial
-            </label>
-            <label>
-              <input
-                type="checkbox"
-                checked={record.heartDisease || false}
-                onChange={(e) => setRecord({ ...record, heartDisease: e.target.checked })}
-              />
-              Cardiopatía
-            </label>
-            <label>
-              <input
-                type="checkbox"
-                checked={record.cancer || false}
-                onChange={(e) => setRecord({ ...record, cancer: e.target.checked })}
-              />
-              Cáncer
-            </label>
-            <label>
-              Otros:
-              <input
-                type="text"
-                value={record.otherDiseases || ''}
-                onChange={(e) => setRecord({ ...record, otherDiseases: e.target.value })}
-              />
-            </label>
-          </fieldset>
-
-          {/* 🔹 Información Adicional */}
-          <label>
-            Ocupación:
-            <input
-              type="text"
-              value={record.occupation || ''}
-              onChange={(e) => setRecord({ ...record, occupation: e.target.value })}
-            />
-          </label>
-          <label>
-            Estado Civil:
-            <input
-              type="text"
-              value={record.maritalStatus || ''}
-              onChange={(e) => setRecord({ ...record, maritalStatus: e.target.value })}
-            />
-          </label>
-          <label>
-            Escolaridad:
-            <input
-              type="text"
-              value={record.education || ''}
-              onChange={(e) => setRecord({ ...record, education: e.target.value })}
-            />
-          </label>
-          <label>
-            Factores de Riesgo Laborales:
-            <input
-              type="text"
-              value={record.riskFactors || ''}
-              onChange={(e) => setRecord({ ...record, riskFactors: e.target.value })}
-            />
-          </label>
-
           <button type="button" onClick={handleSave}>
             Guardar Cambios
           </button>
@@ -190,13 +113,12 @@ function ViewPatient() {
           {Array.from({ length: 4 }).map((_, index) => (
             <div key={index} className="grid-item">
               <div className="image-container">
-                {/* 🔹 Redirige a una vista específica según el índice de la imagen */}
                 <img
                   src={defaultImage}
                   alt={`Imagen ${index + 1}`}
                   className="grid-image"
-                  onClick={() => navigate(`/estudio/${id}/${index + 1}`)} // Redirección dinámica
-                  style={{ cursor: 'pointer' }} // Agregar cursor para indicar que es clickeable
+                  onClick={() => navigate(`/estudio/${id}/${index + 1}`)}
+                  style={{ cursor: 'pointer' }}
                 />
               </div>
               <textarea
@@ -210,7 +132,6 @@ function ViewPatient() {
           ))}
         </div>
 
-        {/* Botón para avanzar */}
         <button className="btn-next" onClick={() => navigate(`/analisis-detallado/${id}`)}>
           Avanzar Página
         </button>

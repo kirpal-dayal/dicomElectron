@@ -11,21 +11,58 @@ function DoctorView() {
   const username = 'Doctor';
   const menuOptions = ['Eliminar paciente', 'Salir'];
 
+  // 🔹 Cargar los pacientes desde localStorage
   useEffect(() => {
-    const storedPatients = JSON.parse(localStorage.getItem('patients')) || [];
-    setPatients(storedPatients);
+    try {
+      const storedPatients = JSON.parse(localStorage.getItem('patients')) || [];
+
+      // Verificar si `storedPatients` es un array
+      if (!Array.isArray(storedPatients)) {
+        console.error('❌ Error: "patients" en localStorage no es un array válido.');
+        localStorage.setItem('patients', JSON.stringify([])); // 🔹 Corregir en localStorage
+        setPatients([]);
+        return;
+      }
+
+      setPatients(storedPatients);
+      console.log('📌 Pacientes cargados:', storedPatients);
+    } catch (error) {
+      console.error('⚠️ Error al cargar los pacientes desde localStorage:', error);
+      setPatients([]);
+    }
   }, []);
 
+  // 🔹 Añadir nuevo paciente
   const handleAddPatient = (newPatient) => {
-    const updatedPatients = [...patients, newPatient];
-    setPatients(updatedPatients);
-    localStorage.setItem('patients', JSON.stringify(updatedPatients));
-    setShowForm(false);
+    try {
+      const updatedPatients = [...patients, newPatient];
+
+      // Guardar en localStorage
+      localStorage.setItem('patients', JSON.stringify(updatedPatients));
+
+      setPatients(updatedPatients);
+      setShowForm(false);
+      console.log('✅ Nuevo paciente agregado:', newPatient);
+    } catch (error) {
+      console.error('⚠️ Error al añadir paciente:', error);
+    }
+  };
+
+  // 🔹 Redirigir a la vista de un paciente
+  const handleViewPatient = (index) => {
+    if (patients.length === 0 || index < 0 || index >= patients.length) {
+      alert('Error: El paciente seleccionado no existe.');
+      console.error(`❌ Intento de acceder a índice inválido: ${index}`);
+      return;
+    }
+
+    console.log(`📌 Navegando a ViewPatient con índice: ${index}`);
+    navigate(`/view-patient/${index}`);
   };
 
   return (
     <div>
-      {/* Barra de navegación con "Añadir Paciente" en el NavBar */}
+      {/* Barra de navegación */}
       <NavBar username={username} userType="doctor" menuOptions={menuOptions} onCreate={() => setShowForm(true)} />
 
       {/* Formulario emergente para añadir pacientes */}
@@ -55,8 +92,8 @@ function DoctorView() {
                   <td>{patient.birthDate}</td>
                   <td>{patient.sex}</td>
                   <td>
-                    {/* Redirección a ViewPatient pasando el índice del paciente */}
-                    <button onClick={() => navigate(`/view-patient/${index}`)}>
+                    {/* Redirección a ViewPatient con índice numérico */}
+                    <button onClick={() => handleViewPatient(index)}>
                       Vista
                     </button>
                   </td>
