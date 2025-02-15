@@ -15,6 +15,7 @@ function StudyView() {
   // Estado para la imagen en ventana modal y comentarios
   const [modalImage, setModalImage] = useState(null);
   const [modalOpacity, setModalOpacity] = useState(1);
+  const [modalOpacityMasks, setModalOpacityMasks] = useState(1);
   const [modalText, setModalText] = useState("");
 
   // Simulación de imágenes (puedes agregar más)
@@ -98,30 +99,46 @@ function StudyView() {
         <div className="modal-overlay" onClick={() => setModalImage(null)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <h2>Vista Expandida</h2>
+            <div class="content-modal">
+              <div>
+                <img 
+                src={modalImage} 
+                alt="Imagen Expandida" 
+                className="modal-image"
+                style={{ opacity: modalOpacity }}
+                />
+              </div>
 
-            {/* Imagen con opacidad ajustable */}
-            <img 
-              src={modalImage} 
-              alt="Imagen Expandida" 
-              className="modal-image"
-              style={{ opacity: modalOpacity }}
-            />
-
-            {/* 🔹 Slider de Opacidad dentro del Modal */}
-            <input
-              type="range"
-              min="0"
-              max="1"
-              step="0.05"
-              value={modalOpacity}
-              onChange={(e) => setModalOpacity(parseFloat(e.target.value))}
-            />
-
+              <div className='opts-detail-img'>
+                <text>Opacidad de las imágenes</text>
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value={modalOpacity}
+                  onChange={(e) => setModalOpacity(parseFloat(e.target.value))}
+                />
+                <br/>
+                <text>Opacidad de las máscaras</text>
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value={modalOpacityMasks}
+                  onChange={(e) => setModalOpacityMasks(parseFloat(e.target.value))}
+                />
+                <p>Modificación manual</p>
+                <p>Pulmón</p>
+                <p>Fibrosis</p>
+                <p>Fondo</p>
+              </div>
+            </div>
             {/* 🔹 Botones en el Modal */}
             <div className="modal-buttons">
-              <button className="modal-btn">Modificar mascara</button>
-              <button className="modal-btn">Guardar</button>
-              <button className="close-btn" onClick={() => setModalImage(null)}>Cerrar</button>
+                <button className="modal-btn">Guardar</button>
+                <button className="close-btn" onClick={() => setModalImage(null)}>Cerrar</button>
             </div>
           </div>
         </div>
