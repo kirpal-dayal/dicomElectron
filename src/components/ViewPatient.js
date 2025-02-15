@@ -107,7 +107,7 @@ function ViewPatient() {
 
       {/* 🔹 Panel derecho: Cuadros en Grid con imagen fija */}
       <div className="right-panel">
-        <h2>Último Análisis</h2>
+        <h2>Estudios</h2>
 
         <div className="grid-container">
           {Array.from({ length: 4 }).map((_, index) => (
@@ -121,8 +121,11 @@ function ViewPatient() {
                   style={{ cursor: 'pointer' }}
                 />
               </div>
-              <textarea
-                placeholder="Descripción aquí..."
+              {/* MOD: "Fecha de estudio" como texto inmovil en lugar de textarea 
+                "Toque la imagen para mayor informacion"
+                Dar opción de cargar nuevo dicom para abrir el explorador, directamente las imagenes se procesan*/}
+              <textarea 
+                placeholder="Fecha del estudio..."
                 value={record[`imageDesc${index + 1}`] || ''}
                 onChange={(e) =>
                   setRecord({ ...record, [`imageDesc${index + 1}`]: e.target.value })
@@ -133,7 +136,7 @@ function ViewPatient() {
         </div>
 
         <button className="btn-next" onClick={() => navigate(`/analisis-detallado/${id}`)}>
-          Avanzar Página
+          Comparar volúmenes
         </button>
       </div>
     </div>
