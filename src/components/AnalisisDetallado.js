@@ -32,7 +32,7 @@ function AnalisisDetallado() {
       <div className="image-placeholder-container">
         <div className="image-placeholder">Imagen 1</div>
         <div className="image-placeholder">Imagen 2</div>
-        <div className="image-placeholder">Imagen 3</div>
+        {/* <div className="image-placeholder">Imagen 3</div> */}
       </div>
 
       {/* 🔹 Contenedor de análisis con selección y resultados */}
@@ -43,9 +43,9 @@ function AnalisisDetallado() {
             Selecciona Análisis:
             <select value={selectedOption1} onChange={(e) => setSelectedOption1(e.target.value)}>
               <option value="">Seleccionar...</option>
-              <option value="opcion1">Opción 1</option>
-              <option value="opcion2">Opción 2</option>
-              <option value="opcion3">Opción 3</option>
+              <option value="opcion1">estudio 1</option>
+              <option value="opcion2">estudio 2</option>
+              <option value="opcion3">estudio 3</option>
             </select>
           </label>
           <div className="result-box">Resultado: {selectedOption1 || 'N/A'}</div>
@@ -57,12 +57,12 @@ function AnalisisDetallado() {
             Selecciona Análisis:
             <select value={selectedOption2} onChange={(e) => setSelectedOption2(e.target.value)}>
               <option value="">Seleccionar...</option>
-              <option value="opcionA">Opción A</option>
-              <option value="opcionB">Opción B</option>
-              <option value="opcionC">Opción C</option>
+              <option value="opcionA">estudio 1</option>
+              <option value="opcionB">estudio 2</option>
+              <option value="opcionC">estudio 3</option>
             </select>
           </label>
-          <div className="result-box">Resultado: {selectedOption2 || 'N/A'}</div>
+          {/* <div className="result-box">Resultado: {selectedOption2 || 'N/A'}</div> */}
         </div>
       </div>
 
