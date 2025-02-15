@@ -2,35 +2,52 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import defaultImage from '../assets/images/image.jpg';
 
-
 function ViewPatient() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [record, setRecord] = useState(null);
 
-  // Cargar los datos del paciente desde localStorage
   useEffect(() => {
+    const storedPatients = JSON.parse(localStorage.getItem('patients')) || [];
     const storedRecords = JSON.parse(localStorage.getItem('records')) || [];
 
-    if (!storedRecords || id < 0 || id >= storedRecords.length) {
+    let data = [];
+
+    // Convertir `id` a número
+    const recordId = parseInt(id, 10);
+
+    // Determina si cargar desde "patients" o "records"
+    if (window.location.pathname.includes('view-patient')) {
+      data = storedPatients; // Se accede desde DoctorView
+    } else {
+      data = storedRecords; // Se accede desde AdminView
+    }
+
+    // Validar si el registro existe
+    if (!data || !Array.isArray(data) || !data[recordId]) {
       alert('Registro no encontrado.');
-      navigate('/admin');
+      navigate(window.location.pathname.includes('view-patient') ? '/doctor' : '/admin');
       return;
     }
 
-    setRecord(storedRecords[id]);
+    setRecord(data[recordId]);
   }, [id, navigate]);
 
   // Guardar los cambios en localStorage
   const handleSave = () => {
+    const storedPatients = JSON.parse(localStorage.getItem('patients')) || [];
     const storedRecords = JSON.parse(localStorage.getItem('records')) || [];
-    if (!storedRecords || id < 0 || id >= storedRecords.length) {
+
+    const recordId = parseInt(id, 10);
+    let data = window.location.pathname.includes('view-patient') ? storedPatients : storedRecords;
+
+    if (!data || !Array.isArray(data) || !data[recordId]) {
       alert('Error al guardar. Registro no encontrado.');
       return;
     }
 
-    storedRecords[id] = record;
-    localStorage.setItem('records', JSON.stringify(storedRecords));
+    data[recordId] = record;
+    localStorage.setItem(window.location.pathname.includes('view-patient') ? 'patients' : 'records', JSON.stringify(data));
     alert('Cambios guardados correctamente');
   };
 
@@ -165,33 +182,33 @@ function ViewPatient() {
         </form>
       </div>
 
-    {/* 🔹 Panel derecho: Cuadros en Grid con imagen fija */}
-    <div className="right-panel">
-      <h2>Último Análisis</h2>
+      {/* 🔹 Panel derecho: Cuadros en Grid con imagen fija */}
+      <div className="right-panel">
+        <h2>Último Análisis</h2>
 
-      <div className="grid-container">
-        {Array.from({ length: 4 }).map((_, index) => (
-          <div key={index} className="grid-item">
-            <div className="image-container">
-              {/* 🔹 Redirige a una vista específica según el índice de la imagen */}
-              <img
-                src={defaultImage}
-                alt={`Imagen ${index + 1}`}
-                className="grid-image"
-                onClick={() => navigate(`/estudio/${id}/${index + 1}`)} // Redirección dinámica
-                style={{ cursor: 'pointer' }} // Agregar cursor para indicar que es clickeable
+        <div className="grid-container">
+          {Array.from({ length: 4 }).map((_, index) => (
+            <div key={index} className="grid-item">
+              <div className="image-container">
+                {/* 🔹 Redirige a una vista específica según el índice de la imagen */}
+                <img
+                  src={defaultImage}
+                  alt={`Imagen ${index + 1}`}
+                  className="grid-image"
+                  onClick={() => navigate(`/estudio/${id}/${index + 1}`)} // Redirección dinámica
+                  style={{ cursor: 'pointer' }} // Agregar cursor para indicar que es clickeable
+                />
+              </div>
+              <textarea
+                placeholder="Descripción aquí..."
+                value={record[`imageDesc${index + 1}`] || ''}
+                onChange={(e) =>
+                  setRecord({ ...record, [`imageDesc${index + 1}`]: e.target.value })
+                }
               />
             </div>
-            <textarea
-              placeholder="Descripción aquí..."
-              value={record[`imageDesc${index + 1}`] || ''}
-              onChange={(e) =>
-                setRecord({ ...record, [`imageDesc${index + 1}`]: e.target.value })
-              }
-            />
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
 
         {/* Botón para avanzar */}
         <button className="btn-next" onClick={() => navigate(`/analisis-detallado/${id}`)}>
