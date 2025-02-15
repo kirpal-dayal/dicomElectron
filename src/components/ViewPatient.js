@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import defaultImage from '../assets/images/image.jpg';
+
 
 function ViewPatient() {
   const { id } = useParams();
@@ -8,31 +10,28 @@ function ViewPatient() {
 
   // Cargar los datos del paciente desde localStorage
   useEffect(() => {
-    const storedPatients = JSON.parse(localStorage.getItem('patients')) || [];
     const storedRecords = JSON.parse(localStorage.getItem('records')) || [];
 
-    // Determina si cargar desde "patients" o "records"
-    const data = storedPatients.length > 0 ? storedPatients : storedRecords;
-
-    if (data && id >= 0 && id < data.length) {
-      setRecord(data[id]);
+    if (!storedRecords || id < 0 || id >= storedRecords.length) {
+      alert('Registro no encontrado.');
+      navigate('/admin');
+      return;
     }
-  }, [id]);
+
+    setRecord(storedRecords[id]);
+  }, [id, navigate]);
 
   // Guardar los cambios en localStorage
   const handleSave = () => {
-    const storedPatients = JSON.parse(localStorage.getItem('patients')) || [];
     const storedRecords = JSON.parse(localStorage.getItem('records')) || [];
-
-    // Guardar en la fuente de datos correcta
-    const data = storedPatients.length > 0 ? storedPatients : storedRecords;
-
-    if (data && id >= 0 && id < data.length) {
-      data[id] = record;
-      localStorage.setItem(storedPatients.length > 0 ? 'patients' : 'records', JSON.stringify(data));
+    if (!storedRecords || id < 0 || id >= storedRecords.length) {
+      alert('Error al guardar. Registro no encontrado.');
+      return;
     }
 
-    alert('Cambios guardados');
+    storedRecords[id] = record;
+    localStorage.setItem('records', JSON.stringify(storedRecords));
+    alert('Cambios guardados correctamente');
   };
 
   if (!record) return <p>Cargando...</p>;
@@ -166,54 +165,37 @@ function ViewPatient() {
         </form>
       </div>
 
-      {/* 🔹 Panel derecho: Último Análisis */}
-      <div className="right-panel">
-        <h2>Último Análisis</h2>
-        <div className="image-placeholder">Imagen del análisis</div>
+    {/* 🔹 Panel derecho: Cuadros en Grid con imagen fija */}
+    <div className="right-panel">
+      <h2>Último Análisis</h2>
 
-        {/* 🔹 Nuevos campos para análisis clínico */}
-        <div className="analysis-details">
-          <label>
-            Diagnóstico:
-            <input
-              type="text"
-              value={record.diagnosis || ''}
-              onChange={(e) => setRecord({ ...record, diagnosis: e.target.value })}
-            />
-          </label>
-
-          <label>
-            Tratamiento:
+      <div className="grid-container">
+        {Array.from({ length: 4 }).map((_, index) => (
+          <div key={index} className="grid-item">
+            <div className="image-container">
+              {/* 🔹 Redirige a una vista específica según el índice de la imagen */}
+              <img
+                src={defaultImage}
+                alt={`Imagen ${index + 1}`}
+                className="grid-image"
+                onClick={() => navigate(`/estudio/${id}/${index + 1}`)} // Redirección dinámica
+                style={{ cursor: 'pointer' }} // Agregar cursor para indicar que es clickeable
+              />
+            </div>
             <textarea
-              value={record.treatment || ''}
-              onChange={(e) => setRecord({ ...record, treatment: e.target.value })}
+              placeholder="Descripción aquí..."
+              value={record[`imageDesc${index + 1}`] || ''}
+              onChange={(e) =>
+                setRecord({ ...record, [`imageDesc${index + 1}`]: e.target.value })
+              }
             />
-          </label>
+          </div>
+        ))}
+      </div>
 
-          <label>
-            Observaciones:
-            <textarea
-              value={record.observations || ''}
-              onChange={(e) => setRecord({ ...record, observations: e.target.value })}
-            />
-          </label>
-
-          {/* <label>
-            Fecha del Análisis:
-            <input
-              type="date"
-              value={record.analysisDate || ''}
-              onChange={(e) => setRecord({ ...record, analysisDate: e.target.value })}
-            />
-          </label> */}
-        </div>
-
-        {/* 🔹 Botón para ver análisis detallado */}
-        <button 
-          type="button" 
-          onClick={() => navigate(`/analisis-detallado/${id}`)}
-        >
-          Ver Análisis Detallado
+        {/* Botón para avanzar */}
+        <button className="btn-next" onClick={() => navigate(`/analisis-detallado/${id}`)}>
+          Avanzar Página
         </button>
       </div>
     </div>

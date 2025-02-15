@@ -320,15 +320,14 @@ table th {
   color: white;
 }
 
-/* pagina de vista pacientes registros */
-
+/* ViewPatient */
 .view-container {
   display: flex;
   height: 100vh;
+  padding: 20px;
 }
 
-.left-panel,
-.right-panel {
+.left-panel, .right-panel {
   flex: 1;
   padding: 20px;
   overflow-y: auto;
@@ -336,29 +335,71 @@ table th {
 
 .left-panel {
   background-color: #f9f9f9;
-  border-right: 1px solid #ddd;
+  border-right: 2px solid #ddd;
 }
 
 .right-panel {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
   background-color: #ffffff;
 }
 
-.image-placeholder {
-  width: 80%;
-  height: 50%;
-  background-color: #ccc;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 18px;
-  color: #555;
+.grid-container {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr); /* Mantiene 2 columnas */
+  gap: 10px;
+  width: 100%;
+  max-width: 500px; /* 🔹 Evita que las imágenes sean muy grandes */
+  padding: 20px;
+}
+
+.grid-item {
+  border: 1px solid #ddd;
+  padding: 10px;
+  text-align: center;
+  background-color: #f5f5f5;
   border-radius: 8px;
 }
-  
+
+.image-container {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+
+.grid-image {
+  width: 100%; /* Se ajusta al contenedor */
+  max-width: 180px; /* 🔹 Tamaño máximo */
+  height: auto; /* Mantiene proporciones */
+  border-radius: 8px;
+}
+
+textarea {
+  width: 100%;
+  height: 50px;
+  margin-top: 10px;
+  padding: 5px;
+  font-size: 14px;
+  resize: none; /* Evita que se pueda redimensionar */
+}
+
+.btn-save, .btn-back, .btn-next {
+  width: 100%;
+  padding: 10px;
+  margin-top: 10px;
+  font-size: 16px;
+  background-color: #d9534f;
+  color: white;
+  border: none;
+  cursor: pointer;
+  border-radius: 5px;
+}
+
+.btn-next {
+  background-color: #007bff;
+}
+
 /* analisisDetallado */
 .analisis-container {
   text-align: center;
@@ -405,5 +446,214 @@ table th {
   border: 1px solid #ccc;
   text-align: center;
   font-weight: bold;
+}
+
+/* StudyView */
+/* Contenedor General */
+.study-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 20px;
+  position: relative;
+}
+
+/* 🔹 Botones en la Esquina Derecha */
+.top-right-buttons {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: flex;
+  gap: 10px;
+}
+
+.red-btn {
+  background-color: #d9534f;
+  color: white;
+  border: none;
+  padding: 10px 15px;
+  font-size: 14px;
+  cursor: pointer;
+  border-radius: 5px;
+}
+
+.red-btn:hover {
+  background-color: #c9302c;
+}
+
+/* 🔹 Flechas de Navegación */
+.navigation-arrows {
+  display: flex;
+  justify-content: center;
+  gap: 15px;
+  margin-bottom: 10px;
+}
+
+.arrow-btn {
+  padding: 10px 15px;
+  font-size: 18px;
+  background-color: rgba(0, 0, 0, 0.7);
+  color: white;
+  border: none;
+  cursor: pointer;
+  border-radius: 50%;
+}
+
+.arrow-btn:hover {
+  background-color: rgba(0, 0, 0, 0.9);
+}
+
+/* 🔹 Contenedor de Vistas */
+.views-container {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+}
+
+/* 🔹 Vista de cada Imagen */
+.image-view {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 33.33%;
+}
+
+/* 🔹 Imagen (Abarca un tercio del ancho) */
+.study-image {
+  width: 100%;
+  max-width: 400px;
+  height: auto;
+  object-fit: contain;
+  border: 2px solid #ddd;
+  border-radius: 8px;
+}
+
+/* 🔹 Sliders */
+input[type="range"] {
+  margin-top: 10px;
+  width: 80%;
+}
+
+/* 🔹 Controles de Procesamiento */
+.controls-container {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.control-btn {
+  padding: 10px 15px;
+  font-size: 14px;
+  border: none;
+  cursor: pointer;
+  border-radius: 5px;
+  background-color: #007bff;
+  color: white;
+}
+
+.control-btn:hover {
+  background-color: #0056b3;
+}
+
+/* 🔹 Botón de Volver */
+.btn-back {
+  margin-top: 20px;
+  padding: 10px 20px;
+  font-size: 16px;
+  background-color: #d9534f;
+  color: white;
+  border: none;
+  cursor: pointer;
+  border-radius: 5px;
+}
+
+.btn-back:hover {
+  background-color: #c9302c;
+}
+
+/* 🔹 Contenedor del Modal */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+/* 🔹 Contenedor de la Imagen en el Modal */
+.modal-content {
+  position: relative;
+  background: white;
+  padding: 20px;
+  border-radius: 10px;
+  text-align: center;
+  width: 50%;
+  max-width: 600px;
+}
+
+/* 🔹 Imagen dentro del Modal (tamaño real) */
+.modal-image {
+  max-width: 100%;
+  max-height: 500px;
+  border-radius: 8px;
+  margin-bottom: 15px;
+}
+
+/* 🔹 Slider dentro del Modal */
+.modal-content input[type="range"] {
+  width: 80%;
+  margin: 10px 0;
+}
+
+/* 🔹 Campo de texto en el modal */
+.modal-textarea {
+  width: 100%;
+  height: 80px;
+  resize: none;
+  margin-bottom: 10px;
+  font-size: 14px;
+  padding: 5px;
+}
+
+/* 🔹 Botones en el Modal */
+.modal-buttons {
+  display: flex;
+  justify-content: space-around;
+}
+
+.modal-btn {
+  background: blue;
+  color: white;
+  border: none;
+  padding: 8px 15px;
+  font-size: 14px;
+  cursor: pointer;
+  border-radius: 5px;
+}
+
+.modal-btn:hover {
+  background: darkblue;
+}
+
+/* 🔹 Botón de Cerrar */
+.close-btn {
+  background: red;
+  color: white;
+  border: none;
+  padding: 8px 15px;
+  font-size: 14px;
+  cursor: pointer;
+  border-radius: 5px;
+}
+
+.close-btn:hover {
+  background: darkred;
 }
 
