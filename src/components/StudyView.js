@@ -6,84 +6,46 @@ function StudyView() {
   const { id, studyNumber } = useParams();
   const navigate = useNavigate();
 
-  // Estado para opacidad de cada vista
-  const [opacity, setOpacity] = useState([1, 1, 1]);
+  // Estado para opacidad de cada imagen
+  const [opacity, setOpacity] = useState(1);
 
-  // Estado para la imagen actual de TODAS las vistas (se sincronizan)
-  const [imageIndex, setImageIndex] = useState(0);
-
-  // Estado para la imagen en ventana modal y comentarios
+  // Estado para la imagen en ventana modal y opacidad del modal
   const [modalImage, setModalImage] = useState(null);
   const [modalOpacity, setModalOpacity] = useState(1);
 
-  // Simulación de imágenes (repetimos la imagen 50 veces para simular muchas imágenes)
-  const imageList = new Array(50).fill(defaultImage);  // 50 imágenes repetidas
-
-  // Cambia la imagen en todas las vistas al presionar flechas
-  const changeImage = (direction) => {
-    setImageIndex((prevIndex) => 
-      (prevIndex + direction + imageList.length) % imageList.length
-    );
-  };
+  // Simulación de imágenes (50 imágenes repetidas para prueba)
+  const imageList = new Array(50).fill(defaultImage);
 
   return (
-    <div className="study-container" style={{ display: 'flex', height: '100vh' }}>
-      {/* Parte izquierda: Desplazador de imágenes */}
-      <div 
-        className="image-container" 
-        style={{
-          flex: 1, 
-          overflowY: 'auto', 
-          display: 'flex', 
-          flexDirection: 'column', 
-          padding: '20px'
-        }}
-      >
+    <div className="study-container">
+      {/* 🔹 Contenedor de Imágenes (2/3 del ancho total) */}
+      <div className="image-grid-container">
         {imageList.map((image, idx) => (
           <img
             key={idx}
             src={image}
             alt={`Imagen ${idx + 1}`}
             className="study-image"
-            style={{
-              width: '100%', 
-              maxWidth: '300px', 
-              margin: '10px 0',  // Separación vertical entre imágenes
-              opacity: opacity[0]
-            }}
+            style={{ opacity }}
             onClick={() => {
               setModalImage(image);
-              setModalOpacity(opacity[0]);
+              setModalOpacity(opacity);
             }}
           />
         ))}
       </div>
 
-      {/* Parte derecha: Campos de datos */}
-      <div className="data-container" style={{ flex: 1, padding: '20px', overflowY: 'auto' }}>
+      {/* 🔹 Contenedor de Información (1/3 del ancho total) */}
+      <div className="data-container">
         <h3>Información del Estudio</h3>
-        <div className="data-field">
-          <strong>Paciente:</strong> {id}
-        </div>
-        <div className="data-field">
-          <strong>Estudio N°:</strong> {studyNumber}
-        </div>
+        <p><strong>Paciente:</strong> {id}</p>
+        <p><strong>Estudio N°:</strong> {studyNumber}</p>
+        <p><strong>Fecha de Estudio:</strong> 12/02/2025</p>
+        <p><strong>Descripción:</strong> Estudio realizado para evaluar el estado general.</p>
+        <p><strong>Última modificación:</strong> Usuario...</p>
+        <p><strong>Último Volumen Calculado:</strong> X</p>
 
-        {/* Agregar más campos según sea necesario */}
-        <div className="data-field">
-          <strong>Fecha de Estudio:</strong> 12/02/2025
-        </div>
-        <div className="data-field">
-          <strong>Descripción:</strong> Estudio realizado para evaluar el estado general.
-        </div>
-        <div className="data-field">
-          <strong>Ultima modificacion:</strong> Usuario...
-        </div>
-        <div className="data-field">
-          <strong>Ultima Volumen Calculado:</strong> X
-        </div>
-
-        {/* Botones y controles */}
+        {/* 🔹 Botones en la parte superior derecha */}
         <div className="top-right-buttons">
           <button className="red-btn">Cargar Imagen</button>
           <button className="red-btn">Calcular nuevo volumen</button>
