@@ -8,6 +8,8 @@ import ViewPatient from './components/ViewPatient';
 import AnalisisDetallado from './components/AnalisisDetallado'; // Nueva vista
 import StudyView from './components/StudyView'; // Nueva vista de estudio
 
+import ImageEditor from './components/ExpandedTomography';
+
 import './App.css';
 
 function App() {
@@ -26,6 +28,7 @@ function App() {
         <Route path="/estudio/:id/:studyNumber" element={<StudyView />} /> {/* infopaciente>studyview */}
         {/* 🔹 Nueva ruta para análisis detallado */}
         <Route path="/analisis-detallado/:id" element={<AnalisisDetallado />} />
+        <Route path="/image-editor" element={<ImageEditor />} /> {/* Nueva ruta para ImageEditor */}
       </Routes>
     </Router>
   );
