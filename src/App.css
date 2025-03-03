@@ -568,69 +568,7 @@ textarea {
 .red-btn:hover {
   background-color: #c9302c;
 }
-
 /* 🔹 Modal de Imagen */
-.modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: rgba(0, 0, 0, 0.6);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.modal-content {
-  background: white;
-  padding: 20px;
-  border-radius: 8px;
-  width: 60%;
-  text-align: center;
-}
-
-.modal-image {
-  width: 100%;
-  max-height: 500px;
-  object-fit: contain;
-  border-radius: 8px;
-}
-
-.modal-buttons {
-  margin-top: 10px;
-  display: flex;
-  justify-content: center;
-  gap: 10px;
-}
-
-.modal-btn, .close-btn {
-  padding: 10px;
-  border: none;
-  cursor: pointer;
-  border-radius: 5px;
-}
-
-.modal-btn {
-  background-color: #007bff;
-  color: white;
-}
-
-.modal-btn:hover {
-  background-color: #0056b3;
-}
-
-.close-btn {
-  background-color: #d9534f;
-  color: white;
-}
-
-.close-btn:hover {
-  background-color: #c9302c;
-}
-
-
-/* 🔹 Contenedor del Modal */
 .modal-overlay {
   position: fixed;
   top: 0;
@@ -641,76 +579,113 @@ textarea {
   display: flex;
   justify-content: center;
   align-items: center;
-  z-index: 1000;
 }
 
-/* 🔹 Contenedor de la Imagen en el Modal */
+/* 🔹 Contenedor del Modal */
 .modal-content {
-  position: relative;
   background: white;
   padding: 20px;
   border-radius: 10px;
+  width: 900px;  /* Más ancho */
+  display: flex;
+  flex-direction: column;
   text-align: center;
-  width: 50%;
-  max-width: 600px;
 }
 
-/* 🔹 Imagen dentro del Modal (tamaño real) */
+/* 🔹 Diseño de dos columnas dentro del Modal */
+.modal-layout {
+  display: flex;
+  gap: 20px;
+  align-items: center;
+}
+
+/* 🔹 Imagen en la izquierda con mayor tamaño */
+.modal-image-container {
+  flex: 2; 
+  display: flex;
+  justify-content: center;
+}
+
 .modal-image {
-  max-width: 100%;
-  max-height: 500px;
-  border-radius: 8px;
-  margin-bottom: 15px;
-}
-
-/* 🔹 Slider dentro del Modal */
-.modal-content input[type="range"] {
-  width: 80%;
-  margin: 10px 0;
-}
-
-/* 🔹 Campo de texto en el modal */
-.modal-textarea {
   width: 100%;
-  height: 80px;
-  resize: none;
-  margin-bottom: 10px;
-  font-size: 14px;
-  padding: 5px;
+  max-width: 500px;
+  border-radius: 8px;
 }
 
-/* 🔹 Botones en el Modal */
+/* 🔹 Controles a la derecha */
+.modal-controls {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  text-align: left;
+}
+
+/* 🔹 Grupo de sliders */
+.control-group {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.control-group label {
+  font-weight: bold;
+}
+
+input[type="range"] {
+  width: 100%;
+}
+
+/* 🔹 Grupo de botones de modificación */
+.modification-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.modification-group h3 {
+  margin-bottom: 5px;
+}
+
+.mod-btn {
+  padding: 8px;
+  font-size: 14px;
+  border: none;
+  cursor: pointer;
+  background: #ddd;
+  border-radius: 5px;
+}
+
+.mod-btn:hover {
+  background: #ccc;
+}
+
+/* 🔹 Botones de Acción */
 .modal-buttons {
   display: flex;
-  justify-content: space-around;
+  justify-content: space-between;
+  margin-top: 15px;
 }
 
-.modal-btn {
-  background: blue;
+.modal-btn,
+.close-btn {
+  background: #007bff;
   color: white;
+  padding: 10px;
   border: none;
-  padding: 8px 15px;
-  font-size: 14px;
   cursor: pointer;
   border-radius: 5px;
 }
 
 .modal-btn:hover {
-  background: darkblue;
+  background: #0056b3;
 }
 
-/* 🔹 Botón de Cerrar */
 .close-btn {
-  background: red;
-  color: white;
-  border: none;
-  padding: 8px 15px;
-  font-size: 14px;
-  cursor: pointer;
-  border-radius: 5px;
+  background: #d9534f;
 }
 
 .close-btn:hover {
-  background: darkred;
+  background: #c9302c;
 }
 
