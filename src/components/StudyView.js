@@ -128,9 +128,11 @@ const StudyView = () => {
         <p><strong>Estudio N°:</strong> {studyNumber}</p>
         <p><strong>Fecha de Estudio:</strong> 12/02/2025</p>
         <p><strong>Descripción:</strong> Estudio realizado para evaluar el estado general.</p>
+        <p><strong>Volumen generado automaticamente:</strong> XXml</p>
+        <p><strong>Volumen ajustado:</strong> XXml</p>
 
         <div className="top-right-buttons">
-          <button className="red-btn">Cargar Imagen</button>
+          {/* <button className="red-btn">Cargar Imagen</button> */}
           <button className="red-btn">Calcular nuevo volumen</button>
         </div>
       </div>
