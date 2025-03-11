@@ -357,10 +357,20 @@ table th {
 .grid-item {
   border: 1px solid #ddd;
   padding: 10px;
-  text-align: center;
   background-color: #f5f5f5;
   border-radius: 8px;
+  display: flex; /* Activa flexbox */
+  flex-direction: column; /* ✅ Organiza los elementos en columna */
+  align-items: center; /* ✅ Centra los elementos horizontalmente */
+  justify-content: space-between; /* 🔹 Distribuye la imagen y el texto */
+  height: auto; /* 🔹 Ajusta la altura según el contenido */
 }
+.study-text {
+  text-align: center; /* ✅ Centra el texto */
+  margin-top: 10px; /* 🔹 Espaciado entre la imagen y el texto */
+  width: 100%; /* 🔹 Asegura que ocupe el mismo ancho que la imagen */
+}
+
 
 .image-container {
   width: 100%;
@@ -370,7 +380,7 @@ table th {
 
 .grid-image {
   width: 100%; /* Se ajusta al contenedor */
-  max-width: 180px; /* 🔹 Tamaño máximo */
+  max-width: 280px; /* 🔹 Tamaño máximo */
   height: auto; /* Mantiene proporciones */
   border-radius: 8px;
 }
@@ -397,7 +407,34 @@ textarea {
 }
 
 .btn-next {
-  background-color: #007bff;
+  background-color: #5f75d8;
+}
+
+.upload-icon {
+  display: flex;
+  flex-direction: column;
+  align-items: center; /* ✅ Centra el contenido horizontalmente */
+  justify-content: center; /* ✅ Centra el contenido verticalmente */
+  text-align: center; /* ✅ Asegura que el texto se alinee bien */
+  cursor: pointer;
+  padding: 20px;
+  border: 2px dashed #007bff;
+  border-radius: 8px;
+  background-color: #f4f4f4;
+  width: 100%; /* ✅ Hace que el contenedor ocupe todo el espacio disponible */
+  height: 100%; /* ✅ Asegura que el alto sea completo */
+  min-height: 140px; /* 🔹 Ajusta la altura mínima para que no se encoja demasiado */
+}
+
+.upload-icon svg { /* 🔹 Ajuste para centrar aún más el ícono */
+  display: block;
+  margin: 0 auto; /* ✅ Centra el ícono */
+}
+
+.upload-icon p {  /* 🔹 Ajuste para centrar el texto debajo */
+  margin: 10px 0 0; /* 🔹 Espaciado adecuado entre el ícono y el texto */
+  font-size: 14px;
+  color: #007bff;
 }
 
 /* analisisDetallado */
