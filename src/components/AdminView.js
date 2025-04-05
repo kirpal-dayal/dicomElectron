@@ -39,7 +39,7 @@ function AdminView() {
         <h1>Bienvenido, {username}</h1>
         <p>Aquí puedes gestionar el sistema.</p>
         <div>
-          <input type='text' placeholder='Escibe el ID o nombre de un usuario...'></input>
+          <input type='text' placeholder='Escribe el ID o nombre de un usuario...'></input>
           <button>Buscar</button>
         </div>
       </div>
