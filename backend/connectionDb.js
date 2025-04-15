@@ -1,3 +1,4 @@
+//import mysql from 'mysql2';
 const mysql = require('mysql2');
 
 // Configura la conexión a la base de datos MySQL local de prueba

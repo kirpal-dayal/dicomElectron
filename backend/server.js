@@ -1,15 +1,21 @@
 const express = require('express');
 const cors = require('cors');
-const fs = require('fs');
+const fs = require('fs'); // comunicacion con el filesystem
 const path = require('path');
 
-const app = express();
-const port = 5000;
+//  SUBIR DICOMS DE ESTUDIOS
+const fileUpload = require('express-fileupload'); // subir archivos al server 
+const unzipper = require('unzipper'); // descomprimir folder con las imagenes de los estudios
 
-const nameDirectoryRequests = 'httpRequests'; // nombre de la carpeta que contiene las peticiones de cada tabla
+const { port, nameDirectoryRequests, nameDirectoryDicom } = require('./configConst');
+
+const app = express();
 
 app.use(cors());
 app.use(express.json());
+// Middleware para manejar la carga de archivos
+app.use(fileUpload());
+app.use(express.static(nameDirectoryDicom)); // Para servir archivos subidos
 
 // Cargar automáticamente todos los archivos de rutas en la carpeta httpRequests
 const routesPath = path.join(__dirname, nameDirectoryRequests);

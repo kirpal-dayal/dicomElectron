@@ -3,6 +3,7 @@ const db = require('../connectionDb');
 //prueba de visualizacion de imagenes
 module.exports = (app) => {
   app.get('/imagenes', (req, res) => {
+    //se entregan las urls de las imagenes (si copias esa url en el navegador, se puede visualizar)
     db.query('SELECT * FROM imagen', (err, results) => {
       if (err) {
         console.log(err);
