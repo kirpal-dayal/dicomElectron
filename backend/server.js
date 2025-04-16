@@ -5,7 +5,6 @@ const path = require('path');
 
 //  SUBIR DICOMS DE ESTUDIOS
 const fileUpload = require('express-fileupload'); // subir archivos al server 
-const unzipper = require('unzipper'); // descomprimir folder con las imagenes de los estudios
 
 const { port, nameDirectoryRequests, nameDirectoryDicom } = require('./configConst');
 
