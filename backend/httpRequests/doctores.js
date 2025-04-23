@@ -43,4 +43,42 @@ module.exports = (app) => {
       res.json(results);
     });
   });
+
+  // Buscar un doctor por ID
+  app.get(`${ENDPOINT}/:id`, (req, res) => {
+    const { id } = req.params; // Extraer el parámetro de la URL
+    if (!id) {
+      return res.status(400).send('Falta el ID del doctor');
+    }
+    const query = 'SELECT * FROM doctor WHERE id = ?';
+    db.query(query, [id], (err, results) => {
+      if (err) {
+        console.error(err);
+        return res.status(500).send('Error al buscar el doctor');
+      }
+      if (results.length === 0) {
+        return res.status(404).send('Doctor no encontrado');
+      }
+      res.json(results[0]); // Devolver el doctor encontrado
+    });
+  });
+
+  // Buscar un doctor por nombre
+  app.get(`${ENDPOINT}/nombre/:nombre`, (req, res) => {
+    const { nombre } = req.params; // Extraer el parámetro de la URL
+    if(!nombre){
+      return res.status(400).send('Falta el nombre del doctor');
+    }
+    const query = 'SELECT * FROM doctor WHERE nombre_doc LIKE ?';
+    db.query(query, [`%${nombre}%`], (err, results) => {
+      if (err) {
+        console.error(err);
+        return res.status(500).send('Error al buscar el doctor');
+      }
+      if (results.length === 0) {
+        return res.status(404).send('No se encontraron doctores con ese nombre');
+      }
+      res.json(results); // Devolver todos los doctores que coincidan
+    });
+  });
 };
