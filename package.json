@@ -1,8 +1,12 @@
 {
   "dependencies": {
+    "adm-zip": "^0.5.16",
+    "axios": "^1.8.4",
+    "child_process": "^1.0.2",
     "cors": "^2.8.5",
     "express": "^4.21.2",
     "konva": "^9.3.18",
+    "multer": "^1.4.5-lts.2",
     "mysql2": "^3.14.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
@@ -19,6 +23,7 @@
     "start": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
+    "backend": "node backend/index.js",
     "eject": "react-scripts eject"
   },
   "browserslist": {
