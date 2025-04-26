@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { FaCloudUploadAlt } from 'react-icons/fa'; // Importando el ícono de carga
+import { FaCloudUploadAlt } from 'react-icons/fa';
 import defaultImage from '../assets/images/image.jpg';
+import axios from 'axios';
 
 function ViewPatient() {
   const { id } = useParams();
@@ -10,153 +11,147 @@ function ViewPatient() {
 
   useEffect(() => {
     const storedPatients = JSON.parse(localStorage.getItem('patients')) || [];
-    const storedRecords = JSON.parse(localStorage.getItem('records')) || [];
-
     const recordId = parseInt(id, 10);
 
-    console.log('📌 Pacientes en localStorage:', storedPatients);
-    console.log('📌 Registros en localStorage:', storedRecords);
-    console.log('📌 Intentando acceder a índice:', recordId);
-
-    // 🔹 Validar si el ID es válido
-    if (isNaN(recordId) || recordId < 0) {
+    if (isNaN(recordId) || recordId < 0 || recordId >= storedPatients.length) {
       alert('Error: ID inválido.');
       navigate('/doctor');
       return;
     }
 
-    let data = storedPatients; // 🔹 Usamos siempre "patients" para DoctorView
-
-    // 🔹 Verificar que el índice esté dentro del rango correcto
-    if (!Array.isArray(data) || recordId >= data.length) {
-      alert(`Registro no encontrado en índice: ${recordId}`);
-      navigate('/doctor');
-      return;
-    }
-
-    setRecord(data[recordId]);
+    setRecord(storedPatients[recordId]);
   }, [id, navigate]);
 
-  // Guardar los cambios en localStorage
   const handleSave = () => {
     const storedPatients = JSON.parse(localStorage.getItem('patients')) || [];
-
     const recordId = parseInt(id, 10);
-    let data = storedPatients;
 
-    if (!Array.isArray(data) || recordId >= data.length) {
-      alert('Error al guardar. Registro no encontrado.');
-      return;
-    }
-
-    data[recordId] = record;
-    localStorage.setItem('patients', JSON.stringify(data));
+    storedPatients[recordId] = record;
+    localStorage.setItem('patients', JSON.stringify(storedPatients));
     alert('Cambios guardados correctamente');
   };
-
-  // Función que maneja el cambio de archivo (actualmente no hace nada)
-  const handleFileChange = (event) => {
+  const handleZipChange = async (event) => {
     const file = event.target.files[0];
-    if (file) {
-      console.log('Archivo seleccionado:', file);
-      // Aquí podrías hacer algo con el archivo, como previsualizarlo o almacenarlo
+    if (!file || !file.name.endsWith('.zip')) {
+      alert("Por favor selecciona un archivo .zip válido");
+      return;
+    }
+  
+    if (!record?.nss) {
+      console.warn("⚠️ No hay NSS en el registro actual.");
+      return;
+    }
+  
+    const fecha = new Date();
+    const formattedFecha = `${fecha.getFullYear()}-${String(fecha.getMonth() + 1).padStart(2, '0')}-${String(fecha.getDate()).padStart(2, '0')} ${String(fecha.getHours()).padStart(2, '0')}:${String(fecha.getMinutes()).padStart(2, '0')}:${String(fecha.getSeconds()).padStart(2, '0')}`;
+  
+    const formData = new FormData();
+    formData.append('zipFile', file);
+    formData.append('nss', record.nss);
+    formData.append('fecha', formattedFecha);
+  
+    try {
+      console.log("📤 Enviando archivo ZIP:", file.name);
+      console.log("🧬 Enviando con NSS:", record.nss, "| Fecha:", formattedFecha);
+  
+      const response = await axios.post('http://localhost:5000/api/image/upload-zip', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+  
+      console.log("📥 Respuesta del servidor:", response.data);
+  
+      const newStudy = {
+        fecha: formattedFecha,
+        tratamiento: 'No disponible',
+      };
+  
+      const updatedRecord = {
+        ...record,
+        studies: [...(record.studies || []), newStudy],
+      };
+  
+      setRecord(updatedRecord);
+      const storedPatients = JSON.parse(localStorage.getItem('patients')) || [];
+      storedPatients[parseInt(id)] = updatedRecord;
+      localStorage.setItem('patients', JSON.stringify(storedPatients));
+  
+      alert('✅ ZIP subido correctamente');
+      navigate(`/estudio/${id}/${encodeURIComponent(formattedFecha)}`);
+    } catch (err) {
+      alert('❌ Error al subir el archivo ZIP');
+      console.error("🚨 Error de subida:", err);
     }
   };
-
+  
   if (!record) return <p>Cargando...</p>;
 
   return (
     <div className="view-container">
-      {/* 🔹 Panel izquierdo: Información del paciente */}
       <div className="left-panel">
         <h2>Editar Información del Paciente</h2>
         <form>
           <label>
             Nombre Completo:
-            <input
-              type="text"
-              value={record.name}
-              onChange={(e) => setRecord({ ...record, name: e.target.value })}
-            />
+            <input type="text" value={record.name} onChange={(e) => setRecord({ ...record, name: e.target.value })} />
           </label>
           <label>
             NSS:
-            <input
-              type="text"
-              value={record.nss}
-              onChange={(e) => setRecord({ ...record, nss: e.target.value })}
-            />
+            <input type="text" value={record.nss} onChange={(e) => setRecord({ ...record, nss: e.target.value })} />
           </label>
           <label>
             Fecha de Nacimiento:
-            <input
-              type="date"
-              value={record.birthDate}
-              onChange={(e) => setRecord({ ...record, birthDate: e.target.value })}
-            />
+            <input type="date" value={record.birthDate} onChange={(e) => setRecord({ ...record, birthDate: e.target.value })} />
           </label>
           <label>
             Sexo:
-            <select
-              value={record.sex}
-              onChange={(e) => setRecord({ ...record, sex: e.target.value })}
-            >
+            <select value={record.sex} onChange={(e) => setRecord({ ...record, sex: e.target.value })}>
               <option value="masculino">Masculino</option>
               <option value="femenino">Femenino</option>
             </select>
           </label>
 
-          <button type="button" onClick={handleSave}>
-            Guardar Cambios
-          </button>
-          <button type="button" onClick={() => navigate(-1)}>
-            Volver
-          </button>
+          <button type="button" onClick={handleSave}>Guardar Cambios</button>
+          <button type="button" onClick={() => navigate(-1)}>Volver</button>
         </form>
       </div>
 
-      {/* 🔹 Panel derecho: Cuadros en Grid con imagen fija */}
       <div className="right-panel">
         <h2>Estudios</h2>
-
         <div className="grid-container">
-          {Array.from({ length: 4 }).map((_, index) => (
+          {(record.studies || []).map((study, index) => (
             <div key={index} className="grid-item">
               <div className="image-container">
-                {/* Si es la cuarta imagen, mostramos el ícono y el texto */}
-                {index === 3 ? (
-                  <div className="upload-icon">
-                    <label htmlFor="file-upload" style={{ cursor: 'pointer' }}>
-                      <FaCloudUploadAlt size={50} color="#007bff" />
-                      <p>Arrastra o selecciona archivos</p>
-                    </label>
-                    <input
-                      id="file-upload"
-                      type="file"
-                      style={{ display: 'none' }} // Ocultamos el input
-                      onChange={handleFileChange} // Llamamos a la función cuando se selecciona un archivo
-                    />
-                  </div>
-                ) : (
-                  <img
-                    src={defaultImage}
-                    alt={`Imagen ${index + 1}`}
-                    className="grid-image"
-                    onClick={() => navigate(`/estudio/${id}/${index + 1}`)}
-                    style={{ cursor: 'pointer' }}
-                  />
-                )}
+                <img
+                  src={defaultImage}
+                  alt={`Imagen ${index + 1}`}
+                  className="grid-image"
+                  onClick={() => navigate(`/estudio/${id}/${encodeURIComponent(study.fecha)}`)}
+                  style={{ cursor: 'pointer' }}
+                />
               </div>
-
-              {/* Mostrar texto estático debajo de la imagen solo si no es la cuarta */}
-              {index !== 3 && (
-                <div className="study-text">
-                  <label><strong>Fecha de Estudio:</strong> {record[`studyDate${index + 1}`] || 'No disponible'}</label>
-                  <label><strong>Tratamiento:</strong> {record[`treatment${index + 1}`] || 'No disponible'}</label>
-                </div>
-              )}
+              <div className="study-text">
+                <label><strong>Fecha de Estudio:</strong> {new Date(study.fecha).toLocaleString()}</label>
+                <label><strong>Tratamiento:</strong> {study.tratamiento}</label>
+              </div>
             </div>
           ))}
+
+          {/* Componente de carga ZIP */}
+          <div className="grid-item">
+            <div className="upload-icon">
+              <label htmlFor="zip-upload" style={{ cursor: 'pointer' }}>
+                <FaCloudUploadAlt size={50} color="#007bff" />
+                <p>Selecciona archivo ZIP</p>
+              </label>
+              <input
+                id="zip-upload"
+                type="file"
+                accept=".zip"
+                style={{ display: 'none' }}
+                onChange={handleZipChange}
+              />
+            </div>
+          </div>
         </div>
 
         <button className="btn-next" onClick={() => navigate(`/analisis-detallado/${id}`)}>

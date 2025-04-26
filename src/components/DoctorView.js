@@ -16,10 +16,9 @@ function DoctorView() {
     try {
       const storedPatients = JSON.parse(localStorage.getItem('patients')) || [];
 
-      // Verificar si `storedPatients` es un array
       if (!Array.isArray(storedPatients)) {
         console.error('❌ Error: "patients" en localStorage no es un array válido.');
-        localStorage.setItem('patients', JSON.stringify([])); // 🔹 Corregir en localStorage
+        localStorage.setItem('patients', JSON.stringify([]));
         setPatients([]);
         return;
       }
@@ -36,10 +35,7 @@ function DoctorView() {
   const handleAddPatient = (newPatient) => {
     try {
       const updatedPatients = [...patients, newPatient];
-
-      // Guardar en localStorage
       localStorage.setItem('patients', JSON.stringify(updatedPatients));
-
       setPatients(updatedPatients);
       setShowForm(false);
       console.log('✅ Nuevo paciente agregado:', newPatient);
@@ -68,7 +64,7 @@ function DoctorView() {
       {/* Formulario emergente para añadir pacientes */}
       {showForm && <ClinicalForm closeForm={() => setShowForm(false)} addRecord={handleAddPatient} />}
 
-      {/* Tabla de pacientes registrados */}
+      {/* Tabla de pacientes */}
       <div className="records-container">
         <h2>Pacientes Registrados</h2>
         {patients.length === 0 ? (
@@ -77,7 +73,6 @@ function DoctorView() {
           <table>
             <thead>
               <tr>
-                <th>Nombre</th>
                 <th>NSS</th>
                 <th>Fecha de Nacimiento</th>
                 <th>Sexo</th>
@@ -87,12 +82,10 @@ function DoctorView() {
             <tbody>
               {patients.map((patient, index) => (
                 <tr key={index}>
-                  <td>{patient.name}</td>
                   <td>{patient.nss}</td>
                   <td>{patient.birthDate}</td>
                   <td>{patient.sex}</td>
                   <td>
-                    {/* Redirección a ViewPatient con índice numérico */}
                     <button onClick={() => handleViewPatient(index)}>
                       Vista
                     </button>
