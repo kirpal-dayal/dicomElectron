@@ -3,28 +3,59 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import NavBar from './NavBar';
 import ClinicalForm from './ClinicalForm';
+import axios from 'axios'; // IMPORTANTE: Axios para conectar al backend
 
 function AdminView() {
-  const [showForm, setShowForm] = useState(false); // Controla la visibilidad del formulario
-  const [records, setRecords] = useState([]); // Estado para guardar los registros
-  const navigate = useNavigate(); // Inicializa navigate
+  const [showForm, setShowForm] = useState(false);
+  const [records, setRecords] = useState([]);
+  const [searchTerm, setSearchTerm] = useState('');
+  const navigate = useNavigate();
 
   const username = 'Admin';
-  //const menuOptions = ['Crear usuario', 'Borrar', 'Modificar', 'Salir'];
   const menuOptions = ['Crear usuario', 'Borrar', 'Ver perfil', 'Salir'];
 
-  // Carga registros desde localStorage al montar el componente
+  // Cargar todos los doctores al montar
   useEffect(() => {
-    const storedRecords = JSON.parse(localStorage.getItem('records')) || [];
-    setRecords(storedRecords);
+    fetchDoctors();
   }, []);
 
-  // Función para agregar un nuevo registro
+  const fetchDoctors = async () => {
+    try {
+      const response = await axios.get('http://localhost:5000/doctores');
+      setRecords(response.data);
+    } catch (error) {
+      console.error(' Error al cargar doctores:', error);
+    }
+  };
+
+  const handleSearch = async () => {
+    if (!searchTerm.trim()) {
+      fetchDoctors();
+      return;
+    }
+
+    try {
+      // Si el valor ingresado es puro número, se busca por ID
+      if (/^\d+$/.test(searchTerm.trim())) {
+        const response = await axios.get(`http://localhost:5000/doctores/${searchTerm.trim()}`);
+        setRecords([response.data]); // Es un único resultado
+      } else {
+        // Si no es número, busca por nombre
+        const response = await axios.get(`http://localhost:5000/doctores/nombre/${searchTerm.trim()}`);
+        setRecords(response.data);
+      }
+    } catch (error) {
+      console.error('Error en búsqueda:', error);
+      alert('No se encontró ningún doctor con ese criterio');
+    }
+  };
+
+  // Función para agregar un nuevo registro (por ahora sigue en localStorage, luego la adaptamos)
   const handleAddRecord = (newRecord) => {
     const updatedRecords = [...records, newRecord];
-    setRecords(updatedRecords); // Actualiza el estado
-    localStorage.setItem('records', JSON.stringify(updatedRecords)); // Guarda en localStorage
-    setShowForm(false); // Oculta el formulario
+    setRecords(updatedRecords);
+    localStorage.setItem('records', JSON.stringify(updatedRecords));
+    setShowForm(false);
   };
 
   return (
@@ -38,13 +69,28 @@ function AdminView() {
       <div className="admin-container">
         <h1>Bienvenido, {username}</h1>
         <p>Aquí puedes gestionar el sistema.</p>
-        <div>
-          <input type='text' placeholder='Escribe el ID o nombre de un usuario...'></input>
-          <button>Buscar</button>
-        </div>
+        <input
+  type="text"
+  placeholder="Escribe el ID o nombre de un usuario..."
+  value={searchTerm}
+  onChange={(e) => {
+    const value = e.target.value;
+    setSearchTerm(value);
+
+    if (value.trim() === '') {
+      fetchDoctors(); // Si el campo está vacío, recarga todos los doctores automáticamente
+    }
+  }}
+  onKeyDown={(e) => {
+    if (e.key === 'Enter') {
+      handleSearch();
+    }
+  }}
+/>
+
       </div>
 
-      {/* Formulario para agregar registros */}
+      {/* Formulario de agregar doctor */}
       {showForm && (
         <ClinicalForm
           closeForm={() => setShowForm(false)}
@@ -52,7 +98,7 @@ function AdminView() {
         />
       )}
 
-      {/* Tabla de registros guardados */}
+      {/* Tabla de registros */}
       <div className="records-container">
         <h2>Registros Guardados</h2>
         {records.length === 0 ? (
@@ -65,24 +111,16 @@ function AdminView() {
                 <th>Nombre</th>
                 <th>Tipo de usuario</th>
                 <th>Acciones</th>
-                {/*
-                <th>Nombre</th>
-                <th>NSS</th>
-                <th>Fecha de Nacimiento</th>
-                <th>Sexo</th>
-                <th>Acciones</th>
-                */}
               </tr>
             </thead>
             <tbody>
               {records.map((record, index) => (
                 <tr key={index}>
-                  <td>{record.nss}</td>
-                  <td>{record.name}</td>
-                  <td>{record.name}</td>
-                  {/*<td>{record.sex}</td>*/}
+                  <td>{record.id}</td>
+                  <td>{record.nombre_doc}</td>
+                  <td>Doctor</td>
                   <td>
-                    <button onClick={() => navigate(`/view/${index}`)}>
+                    <button onClick={() => navigate(`/view/${record.id}`)}>
                       Vista
                     </button>
                   </td>

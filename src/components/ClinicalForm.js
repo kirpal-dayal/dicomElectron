@@ -21,7 +21,6 @@ function ClinicalForm({ closeForm, addRecord }) {
   const currentYear = new Date().getFullYear();
   const years = Array.from({ length: 100 }, (_, i) => currentYear - i);
 
-  // Cambios generales
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData((prev) => ({
@@ -30,13 +29,11 @@ function ClinicalForm({ closeForm, addRecord }) {
     }));
   };
 
-  // Máscara para fecha manual con diagonales visibles
   const handleManualDateChange = (e) => {
     let value = e.target.value.replace(/[^\d]/g, '');
 
     if (value.length > 8) value = value.slice(0, 8);
 
-    // Rellenar la máscara: DD/MM/YYYY
     let formatted = '';
     for (let i = 0; i < value.length; i++) {
       formatted += value[i];
@@ -180,21 +177,20 @@ function ClinicalForm({ closeForm, addRecord }) {
           </select>
         </div>
 
-        {/* Campo manual con máscara DD/MM/YYYY */}
         <label style={{ marginTop: '10px' }}>
           O escribe la fecha manualmente (DD/MM/YYYY):
           <input
-  type="text"
-  name="manualBirthDate"
-  placeholder="__/__/____"
-  value={formData.manualBirthDate}
-  onChange={handleManualDateChange}
-  inputMode="numeric"
-  maxLength="10"
-/>
-<small style={{ color: '#888' }}>
-  Formato automático: __/__/____
-</small>
+            type="text"
+            name="manualBirthDate"
+            placeholder="__/__/____"
+            value={formData.manualBirthDate}
+            onChange={handleManualDateChange}
+            inputMode="numeric"
+            maxLength="10"
+          />
+          <small style={{ color: '#888' }}>
+            Formato automático: __/__/____
+          </small>
         </label>
 
         <label>
@@ -203,14 +199,34 @@ function ClinicalForm({ closeForm, addRecord }) {
             <option value="">Seleccionar</option>
             <option value="masculino">Masculino</option>
             <option value="femenino">Femenino</option>
-            <option value="otro">Otro / Prefiero no decir</option>
+            <option value="otro">Otro</option>
           </select>
         </label>
 
-        <div className="form-buttons">
-          <button type="submit" className="btn-save">Guardar</button>
-          <button type="button" className="btn-cancel" onClick={closeForm}>Cancelar</button>
+        {/* 🔥 Botones centrados y estilizados */}
+        <div className="form-buttons" style={{
+          display: 'flex',
+          justifyContent: 'center',
+          gap: '20px',
+          marginTop: '20px'
+        }}>
+          <button
+            type="submit"
+            style={{ minWidth: '120px', padding: '10px 0' }}
+            className="btn-save"
+          >
+            Guardar
+          </button>
+          <button
+            type="button"
+            onClick={closeForm}
+            style={{ minWidth: '120px', padding: '10px 0' }}
+            className="btn-cancel"
+          >
+            Cancelar
+          </button>
         </div>
+
       </form>
     </div>
   );
