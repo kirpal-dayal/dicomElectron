@@ -11,6 +11,7 @@ dist/
 build/
 out/  # Algunas configuraciones de Electron generan esta carpeta
 backend/dicomEstudios
+temp/
 
 # 🔹 Archivos de configuración local y credenciales API
 .env
