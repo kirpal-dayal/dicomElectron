@@ -161,35 +161,14 @@ const StudyView = () => {
       </div>
 
       <div className="data-container">
-  <h3>Información del Estudio</h3>
-  <div className="study-info">
-    <div className="info-item">
-      <label><strong>NSS Paciente:</strong></label>
-      <input type="text" value={nss || "Cargando..."} disabled />
-    </div>
-    <div className="info-item">
-      <label><strong>Estudio N°:</strong></label>
-      <input type="text" value={studyNumber} disabled />
-    </div>
-    <div className="info-item">
-      <label><strong>Fecha de Estudio:</strong></label>
-      <input type="text" value={new Date(studyNumber).toLocaleString()} disabled />
-    </div>
-    <div className="info-item">
-      <label><strong>Descripción:</strong></label>
-      <input type="text" value="Estudio realizado para evaluar el estado general." disabled />
-    </div>
-    <div className="info-item">
-      <label><strong>Volumen automático (ml):</strong></label>
-      <input type="text" value="XX ml" disabled />
-    </div>
-    <div className="info-item">
-      <label><strong>Volumen ajustado (ml):</strong></label>
-      <input type="text" value="XX ml" disabled />
-    </div>
-  </div>
-</div>
-
+        <h3>Información del Estudio</h3>
+        <p><strong>Paciente:</strong> {nss || "Cargando..."}</p>
+        <p><strong>Estudio N°:</strong> {studyNumber}</p>
+        <p><strong>Fecha de Estudio:</strong> {new Date(studyNumber).toLocaleString()}</p>
+        <p><strong>Descripción:</strong> Estudio realizado para evaluar el estado general.</p>
+        <p><strong>Volumen generado automáticamente:</strong> XXml</p>
+        <p><strong>Volumen ajustado:</strong> XXml</p>
+      </div>
 
       {modalImage && (
         <div className="modal-overlay" onClick={() => setModalImage(null)}>

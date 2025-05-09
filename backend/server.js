@@ -1,32 +1,42 @@
-const express = require('express');
-const cors = require('cors');
-const fs = require('fs'); // comunicacion con el filesystem
-const path = require('path');
+// backend/server.js
+const express    = require('express');
+const cors       = require('cors');
+const fs         = require('fs');
+const path       = require('path');
+const fileUpload = require('express-fileupload');
 
-//  SUBIR DICOMS DE ESTUDIOS
-const fileUpload = require('express-fileupload'); // subir archivos al server 
-
-const { port, nameDirectoryRequests, nameDirectoryDicom } = require('./configConst');
+const {
+  port,
+  nameDirectoryRequests,
+  nameDirectoryDicom
+} = require('./configConst');
 
 const app = express();
 
+// — Middlewares básicos —
 app.use(cors());
 app.use(express.json());
-// Middleware para manejar la carga de archivos
 app.use(fileUpload());
-app.use(express.static(nameDirectoryDicom)); // Para servir archivos subidos
+app.use(express.static(nameDirectoryDicom));
 
-// Cargar automáticamente todos los archivos de rutas en la carpeta httpRequests
+// — Auto-carga de rutas desde la carpeta httpRequests —
 const routesPath = path.join(__dirname, nameDirectoryRequests);
+console.log(`🔍 Buscando rutas en: ${routesPath}`);
+
 fs.readdirSync(routesPath).forEach((file) => {
   if (file.endsWith('.js')) {
+    console.log(`   ↳ Cargando ruta: ${file}`);
     const route = require(path.join(routesPath, file));
     if (typeof route === 'function') {
-      route(app); // Registrar las rutas en la app
+      route(app);
+      console.log(`     ✅ Ruta ${file} registrada.`);
+    } else {
+      console.warn(`     ⚠️ ${file} no exporta una función.`);
     }
   }
 });
 
+// — Levantar servidor —
 app.listen(port, () => {
-  console.log(`Servidor escuchando en http://localhost:${port}`);
+  console.log(`🚀 Servidor escuchando en http://localhost:${port}`);
 });
