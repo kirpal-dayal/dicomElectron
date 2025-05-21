@@ -5,7 +5,7 @@ import defaultImage from '../assets/images/image.jpg';
 import axios from 'axios';
 
 function ViewPatient() {
-  const { id } = useParams();
+  const { id } = useParams(); // ¿De qué es el id?
   const navigate = useNavigate();
   const [record, setRecord] = useState(null);
 
