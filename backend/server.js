@@ -1,9 +1,9 @@
 // backend/server.js
 const express    = require('express');
 const cors       = require('cors');
-const fs         = require('fs');
+const fs         = require('fs'); // comunicacion con el filesystem
 const path       = require('path');
-const fileUpload = require('express-fileupload');
+const fileUpload = require('express-fileupload'); //subir dicoms de archivo al server
 
 const {
   port,
@@ -16,8 +16,9 @@ const app = express();
 // — Middlewares básicos —
 app.use(cors());
 app.use(express.json());
-app.use(fileUpload());
-app.use(express.static(nameDirectoryDicom));
+// middleware para manejar la carga de archivos
+app.use(fileUpload()); 
+app.use(express.static(nameDirectoryDicom)); //para servir archivos subidos
 
 // — Auto-carga de rutas desde la carpeta httpRequests —
 const routesPath = path.join(__dirname, nameDirectoryRequests);
