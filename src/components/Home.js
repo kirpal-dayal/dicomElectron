@@ -31,7 +31,7 @@ export default function Home() {
     if (!validate()) return;
     setLoading(true);
     try {
-      const { data } = await axios.post(
+      const { data } = await axios.post( // envia datos al endpoint de login, que va a verificar si el usuario y contraseña son correctos
         `${API_URL}/api/login`,
         form,
         { headers: { 'Content-Type': 'application/json' } }
