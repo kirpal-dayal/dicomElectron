@@ -1,3 +1,27 @@
+/**
+ * imageRoutes.js
+ * 
+ * RUTAS BACKEND – API para manejo de imágenes DICOM en el sistema de visualización médica.
+
+ * - Recibe y procesa archivos ZIP subidos con imágenes DICOM desde el frontend.
+ * - Extrae y almacena los archivos en una estructura de carpetas por estudio (basado en NSS y fecha).
+ * - Registra los estudios en la base de datos MySQL.
+ * - Expone endpoints REST para:
+ *    · Listar los archivos DICOM de un estudio (`/dicom-list/:folder`)
+ *    · Servir los archivos DICOM individuales al frontend para su visualización (`/dicom/:folder/:filename`)
+
+ * - Usado por el frontend React para cargar listas de imágenes y acceder a los archivos reales (integración directa con Cornerstone), -> studyview
+ * - La subida de ZIP espera un form-data con los campos `nss`, `fecha` y `zipFile` -> doctorview
+ * - Se integra con la base de datos a través del módulo db/connectionDb.js y la tabla `estudio`.
+
+ * - El frontend debe enviar los archivos DICOM comprimidos (ZIP), tener cuidado con el formato de la fecha y el NSS
+ * - Los archivos se extraen sin procesar para compatibilidad con visores médicos JS.
+ * - Los endpoints asumen estructura consistente en la carpeta de imágenes.
+
+ * - No se hace validación exhaustiva del contenido del ZIP (se asume origen confiable).
+ * - Recomendable agregar autenticación/autorización para entornos productivos.
+ */
+
 // backend/routes/imageRoutes.js
 
 const express  = require('express');

@@ -1,4 +1,31 @@
-// backend/server.js
+/**
+ * server.js - Archivo principal del backend
+ * Este archivo inicia y configura el servidor Express para el backend del sistema DICOMElectron.
+ * Es responsable de servir archivos estáticos, aceptar peticiones API, cargar automáticamente rutas
+ * y manejar archivos DICOM subidos por los usuarios.
+ *
+ * - Configura middlewares esenciales: CORS, JSON parsing y file upload.
+ * - Sirve archivos estáticos desde la carpeta DICOM (usualmente /temp o /uploads).
+ * - Carga automáticamente todos los archivos de rutas desde:
+ *    - /routes → rutas API estándar (ej: expediente, login, estudios).
+ *    - /httpRequests → funciones auxiliares que extienden `app` directamente.
+ * - Monta rutas especiales como `/api/image` para la gestión de archivos DICOM.
+ 
+ *  * VARIABLES DE ENTORNO Y CONFIG:
+ * - Usa dotenv para cargar variables desde `.env` si existe.
+ * - Toma configuraciones desde `configConst.js` como:
+ *    - `port` → Puerto del servidor.
+ *    - `nameDirectoryRequests` → Carpeta con módulos de funciones que se inyectan al servidor.
+ *    - `nameDirectoryDicom` → Carpeta donde se almacenan temporalmente los archivos DICOM.
+
+ * CONEXIONES:
+ * - `/api/*` → Rutas cargadas automáticamente desde `/routes`.
+ * - `/api/image/*` → Rutas específicas para subir, convertir y listar archivos DICOM.
+ * - `/temp`, `/uploads`, etc. → Sirve archivos directamente desde el disco para ser consumidos por el frontend.
+
+ * Se ejecuta con Node.js y escucha en el puerto definido por `.env` o el archivo de configuración.
+ * node server.js, para correr el servidor.
+ */
 const express = require('express');
 const cors = require('cors');
 const fileUpload = require('express-fileupload');
