@@ -1,9 +1,11 @@
 // backend/server.js
-const express    = require('express');
-const cors       = require('cors');
-const fs         = require('fs'); // comunicacion con el filesystem
-const path       = require('path');
-const fileUpload = require('express-fileupload'); //subir dicoms de archivo al server
+const express = require('express');
+const cors = require('cors');
+const fileUpload = require('express-fileupload');
+const fs = require('fs');
+const path = require('path');
+const dotenv = require('dotenv');
+dotenv.config();
 
 const {
   port,
@@ -13,31 +15,47 @@ const {
 
 const app = express();
 
-// — Middlewares básicos —
+// Middlewares
 app.use(cors());
 app.use(express.json());
-// middleware para manejar la carga de archivos
-app.use(fileUpload()); 
-app.use(express.static(nameDirectoryDicom)); //para servir archivos subidos
+app.use(fileUpload());
 
-// — Auto-carga de rutas desde la carpeta httpRequests —
-const routesPath = path.join(__dirname, nameDirectoryRequests);
-console.log(`🔍 Buscando rutas en: ${routesPath}`);
+// Archivos estáticos (ej: /temp)
+app.use(`/${nameDirectoryDicom}`, express.static(path.join(__dirname, nameDirectoryDicom)));
 
-fs.readdirSync(routesPath).forEach((file) => {
-  if (file.endsWith('.js')) {
-    console.log(`   ↳ Cargando ruta: ${file}`);
-    const route = require(path.join(routesPath, file));
-    if (typeof route === 'function') {
-      route(app);
-      console.log(`     ✅ Ruta ${file} registrada.`);
-    } else {
-      console.warn(`     ⚠️ ${file} no exporta una función.`);
+// Auto-cargar todas las rutas de la carpeta /routes
+const routesDir = path.join(__dirname, 'routes');
+if (fs.existsSync(routesDir)) {
+  fs.readdirSync(routesDir).forEach((file) => {
+    if (file.endsWith('.js')) {
+      const route = require(path.join(routesDir, file));
+      if (file === "imageRoutes.js") {
+        app.use('/api/image', route);
+        console.log('  Ruta /api/image montada');
+        console.log('Rutas de imágenes montadas');
+      } else {
+        app.use('/api', route);
+        console.log(`  Ruta /api/${file.replace('.js','')} registrada como Router.`);
+      }
     }
-  }
-});
+  });
+}
 
-// — Levantar servidor —
-app.listen(port, () => {
-  console.log(`🚀 Servidor escuchando en http://localhost:${port}`);
+// Unir todo en un momento dado httpRequestsPath, autocargar todas las rutas de la carpeta /httpRequests
+const httpRequestsPath = path.join(__dirname, nameDirectoryRequests);
+if (fs.existsSync(httpRequestsPath)) {
+  fs.readdirSync(httpRequestsPath).forEach((file) => {
+    if (file.endsWith('.js')) {
+      const route = require(path.join(httpRequestsPath, file));
+      if (typeof route === 'function') {
+        route(app);
+        console.log(` Ruta de httpRequests ${file} registrada.`);
+      }
+    }
+  });
+}
+
+const PORT = process.env.PORT || port;
+app.listen(PORT, () => {
+  console.log(`Servidor escuchando en http://localhost:${PORT}`);
 });
