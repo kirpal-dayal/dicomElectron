@@ -1,256 +1,215 @@
-import React, { useState, useRef, useEffect } from "react";
-import { useParams } from "react-router-dom";
-import { Stage, Layer, Line, Circle, Image as KonvaImage } from "react-konva";
+import React, { useEffect, useRef, useState } from "react";
+import { useParams, useNavigate } from "react-router-dom";
 import axios from "axios";
-import defaultImage from "../assets/images/image.jpg";
+import * as cornerstone from "cornerstone-core";
+import * as cornerstoneWADOImageLoader from "cornerstone-wado-image-loader";
+import * as dicomParser from "dicom-parser";
 
-const StudyView = () => {
-  const { id, studyNumber } = useParams();
+// Configurar Cornerstone
+cornerstoneWADOImageLoader.external.cornerstone = cornerstone;
+cornerstoneWADOImageLoader.external.dicomParser = dicomParser;
 
-  const [nss, setNss] = useState(null);
-  const [imageList, setImageList] = useState([]);
-  const [modalImage, setModalImage] = useState(null);
-  const [konvaImage, setKonvaImage] = useState(null);
+cornerstoneWADOImageLoader.configure({
+  beforeSend: function (xhr) {}
+});
 
-  const [modalOpacity, setModalOpacity] = useState(1);
-  const [modalOpacityMasks, setModalOpacityMasks] = useState(1);
-  const [lines, setLines] = useState([]);
-  const [selectedLine, setSelectedLine] = useState(null);
-  const [zoom, setZoom] = useState(1);
-  const [position, setPosition] = useState({ x: 0, y: 0 });
-  const [isDragging, setIsDragging] = useState(false);
-  const isDrawing = useRef(false);
+export default function StudyView() {
+  const { id: nss, studyNumber } = useParams();
+  const navigate = useNavigate();
 
-  // Obtener el NSS real desde localStorage
+  const [dicomList, setDicomList] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [selectedIndex, setSelectedIndex] = useState(null);
+
+  const viewerRef = useRef();
+
+  const fechaOriginal = decodeURIComponent(studyNumber);
+  const safeFecha = fechaOriginal.replace(/[:\. ]/g, "_");
+  const folder = `${nss}_${safeFecha}`;
+
   useEffect(() => {
-    const storedPatients = JSON.parse(localStorage.getItem("patients")) || [];
-    const record = storedPatients[parseInt(id)];
-    if (record && record.nss) {
-      setNss(record.nss);
-    } else {
-      console.error("❌ No se encontró el NSS para el paciente");
-    }
-  }, [id]);
-
-  // Obtener lista de URLs de imágenes por estudio
-  useEffect(() => {
-    const fetchImages = async () => {
-      if (!nss) return;
-
+    async function fetchDicomFiles() {
       try {
-        const mysqlFecha = decodeURIComponent(studyNumber);
-        console.log("🛰️ Solicitando imágenes con:", { nss, fecha: mysqlFecha });
-
-        const res = await axios.get(`http://localhost:5000/api/image/study?nss=${nss}&fecha=${encodeURIComponent(mysqlFecha)}`);
-        console.log("✅ Respuesta del backend:", res.data);
-
-        if (Array.isArray(res.data)) {
-          const urls = res.data.map(img => `http://localhost:5000/api/image/blob/${img.id}`);
-          setImageList(urls);
-        } else {
-          console.warn("Respuesta inesperada:", res.data);
-          setImageList([]);
+        const { data } = await axios.get(`/api/image/dicom-list/${folder}`);
+        if (!Array.isArray(data) || data.length === 0) {
+          setError("No hay archivos DICOM en este estudio.");
+          return;
         }
-      } catch (err) {
-        console.error(" Error al obtener imágenes:", err);
-        setImageList([]);
+        const urls = data.map(f => `/api/image/dicom/${folder}/${encodeURIComponent(f)}`);
+        setDicomList(urls);
+      } catch {
+        setError("Error al obtener la lista de archivos DICOM.");
+      } finally {
+        setLoading(false);
       }
-    };
+    }
 
-    fetchImages();
-  }, [nss, studyNumber]);
+    fetchDicomFiles();
+  }, [folder]);
 
-  // Cargar imagen para modal con Konva
   useEffect(() => {
-    if (modalImage) {
-      const img = new window.Image();
-      img.crossOrigin = "anonymous";
-      img.onload = () => setKonvaImage(img);
-      img.src = modalImage;
-    }
-  }, [modalImage]);
+    if (selectedIndex === null || !dicomList.length || !viewerRef.current) return;
 
-  const handleMouseDown = (e) => {
-    if (selectedLine !== null) return;
-    isDrawing.current = true;
-    setIsDragging(false);
-    const pos = e.target.getStage().getPointerPosition();
-    setLines([...lines, { points: [pos.x, pos.y], id: lines.length }]);
-  };
+    const element = viewerRef.current;
+    cornerstone.enable(element);
+    const imageId = `wadouri:${window.location.origin}${dicomList[selectedIndex]}`;
 
-  const handleMouseMove = (e) => {
-    if (!isDrawing.current) return;
-    const stage = e.target.getStage();
-    const point = stage.getPointerPosition();
-    setLines((prevLines) => {
-      const updatedLines = [...prevLines];
-      const lastLine = updatedLines[updatedLines.length - 1];
-      if (lastLine) {
-        lastLine.points = [...lastLine.points, point.x, point.y];
-      }
-      return updatedLines;
-    });
-  };
+    cornerstone.loadAndCacheImage(imageId)
+      .then(image => cornerstone.displayImage(element, image))
+      .catch(() => setError("No se pudo mostrar la imagen DICOM."));
 
-  const handleMouseUp = () => {
-    isDrawing.current = false;
-    setIsDragging(true);
-  };
-
-  const handleSelectLine = (index) => {
-    setSelectedLine(index);
-  };
-
-  const handlePointDrag = (index, pointIndex, event) => {
-    setLines((prevLines) => {
-      const updatedLines = [...prevLines];
-      updatedLines[index].points[pointIndex * 2] = event.target.x();
-      updatedLines[index].points[pointIndex * 2 + 1] = event.target.y();
-      return updatedLines;
-    });
-  };
-
-  const handleDelete = () => {
-    if (selectedLine !== null) {
-      setLines(lines.filter((_, index) => index !== selectedLine));
-      setSelectedLine(null);
-    }
-  };
-
-  const handleWheel = (e) => {
-    e.evt.preventDefault();
-    const scaleBy = 1.1;
-    const stage = e.target.getStage();
-    const oldScale = stage.scaleX();
-    const mousePointTo = {
-      x: (e.evt.offsetX - stage.x()) / oldScale,
-      y: (e.evt.offsetY - stage.y()) / oldScale,
+    return () => {
+      try { cornerstone.disable(element); } catch {}
     };
-    const newScale = e.evt.deltaY > 0 ? oldScale / scaleBy : oldScale * scaleBy;
-    setZoom(newScale);
-    setPosition({
-      x: e.evt.offsetX - mousePointTo.x * newScale,
-      y: e.evt.offsetY - mousePointTo.y * newScale,
-    });
-  };
+  }, [selectedIndex, dicomList]);
+
+  const handleCloseViewer = () => setSelectedIndex(null);
+  const handleNext = () => setSelectedIndex(i => Math.min(i + 1, dicomList.length - 1));
+  const handlePrev = () => setSelectedIndex(i => Math.max(i - 1, 0));
+
+  if (loading) return <p style={{ padding: "2rem", textAlign: "center" }}>Cargando estudio…</p>;
+  if (error) return <p style={{ padding: "2rem", textAlign: "center", color: "red" }}>{error}</p>;
 
   return (
-    <div className="study-container">
-      <div className="image-grid-container">
-        {imageList.length > 0 && (
-          <img
-            src={imageList[0]}
-            alt="Preview"
-            style={{ width: 300, border: "2px solid green" }}
-          />
-        )}
+    <>
+      <style>{`
+        .study-wrapper {
+          padding: 1rem 2rem;
+          display: flex;
+          flex-direction: column;
+          min-height: 100vh;
+          background: #f8f8f8;
+        }
+        .header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 1.5rem;
+        }
+        .study-info {
+          font-size: 0.9rem;
+          color: #333;
+        }
+        .thumbnail-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+          gap: 16px;
+        }
+        .thumb {
+          width: 100%;
+          height: 150px;
+          background: black;
+          border-radius: 8px;
+          cursor: pointer;
+        }
+        .fullscreen-overlay {
+          position: fixed;
+          top: 0; left: 0; right: 0; bottom: 0;
+          background: rgba(0,0,0,0.96);
+          z-index: 1000;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+        }
+        .fullscreen-header {
+          width: 100%;
+          max-width: 960px;
+          color: white;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 1rem;
+        }
+        .fullscreen-controls {
+          display: flex;
+          justify-content: center;
+          gap: 1rem;
+          margin-top: 1rem;
+        }
+        .fullscreen-viewer {
+          width: 90%;
+          max-width: 960px;
+          height: 80vh;
+          background: black;
+          border-radius: 12px;
+        }
+        .btn {
+          padding: 0.5rem 1.2rem;
+          background: #007bff;
+          color: white;
+          border: none;
+          border-radius: 6px;
+          cursor: pointer;
+          font-size: 0.9rem;
+        }
+        .btn:disabled {
+          background: #888;
+          cursor: not-allowed;
+        }
+      `}</style>
 
-        {imageList.length > 0 ? (
-          imageList.map((url, idx) => (
-            <img
-              key={idx}
-              src={url}
-              alt={`Imagen ${idx + 1}`}
-              className="study-image"
-              onClick={() => setModalImage(url)}
-            />
-          ))
-        ) : (
-          <p>No hay imágenes disponibles.</p>
-        )}
+      <div className="study-wrapper">
+        {/* Header: info + volver */}
+        <div className="header">
+          <div className="study-info">
+            <p><strong>NSS:</strong> {nss}</p>
+            <p><strong>Fecha del estudio:</strong> {new Date(fechaOriginal).toLocaleString()}</p>
+            <p><strong>Imágenes:</strong> {dicomList.length}</p>
+          </div>
+          <button className="btn" onClick={() => navigate(-1)}>← Volver</button>
+        </div>
+
+        {/* Galería de miniss*/}
+        <div className="thumbnail-grid">
+  {dicomList.map((url, i) => (
+    <div
+      key={i}
+      className="thumb"
+      onClick={() => setSelectedIndex(i)}
+      ref={async el => {
+        if (el) {
+          try {
+            cornerstone.enable(el);
+            const imageId = `wadouri:${window.location.origin}${url}`;
+            const image = await cornerstone.loadAndCacheImage(imageId);
+            cornerstone.displayImage(el, image);
+
+            // Ajuste de ventana para que la miniatura no se vea negra
+            const viewport = cornerstone.getDefaultViewportForImage(el, image);
+            viewport.voi.windowWidth = 400;
+            viewport.voi.windowCenter = 40;
+            cornerstone.setViewport(el, viewport);
+
+            // También puedes usar fitToWindow como alternativa
+            // cornerstone.fitToWindow(el);
+          } catch (err) {
+            console.error("Error al mostrar miniatura DICOM:", err);
+          }
+        }
+      }}
+    ></div>
+  ))}
+</div>
       </div>
 
-      <div className="data-container">
-        <h3>Información del Estudio</h3>
-        <p><strong>Paciente:</strong> {nss || "Cargando..."}</p>
-        <p><strong>Estudio N°:</strong> {studyNumber}</p>
-        <p><strong>Fecha de Estudio:</strong> {new Date(studyNumber).toLocaleString()}</p>
-        <p><strong>Descripción:</strong> Estudio realizado para evaluar el estado general.</p>
-        <p><strong>Volumen generado automáticamente:</strong> XXml</p>
-        <p><strong>Volumen ajustado:</strong> XXml</p>
-      </div>
+      {/* Visor a pantalla completa */}
+      {selectedIndex !== null && (
+        <div className="fullscreen-overlay">
+          <div className="fullscreen-header">
+            <span>{selectedIndex + 1} / {dicomList.length}</span>
+            <button className="btn" onClick={handleCloseViewer}>Cerrar</button>
+          </div>
 
-      {modalImage && (
-        <div className="modal-overlay" onClick={() => setModalImage(null)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <h2>Vista Expandida</h2>
-            <div className="modal-layout">
-              <div className="modal-image-container">
-                <Stage
-                  width={600}
-                  height={600}
-                  draggable={isDragging}
-                  scaleX={zoom}
-                  scaleY={zoom}
-                  x={position.x}
-                  y={position.y}
-                  onWheel={handleWheel}
-                  onMouseDown={handleMouseDown}
-                  onMouseMove={handleMouseMove}
-                  onMouseUp={handleMouseUp}
-                >
-                  <Layer opacity={modalOpacity}>
-                    {konvaImage && <KonvaImage image={konvaImage} width={600} height={600} />}
-                  </Layer>
-                  <Layer opacity={modalOpacityMasks}>
-                    {lines.map((line, index) => (
-                      <React.Fragment key={index}>
-                        <Line
-                          points={line.points}
-                          stroke={selectedLine === index ? "red" : "blue"}
-                          strokeWidth={3}
-                          lineCap="round"
-                          onClick={() => handleSelectLine(index)}
-                        />
-                        {selectedLine === index &&
-                          line.points.map((_, i) =>
-                            i % 2 === 0 ? (
-                              <Circle
-                                key={i}
-                                x={line.points[i]}
-                                y={line.points[i + 1]}
-                                radius={6}
-                                fill="yellow"
-                                draggable
-                                onDragMove={(e) => handlePointDrag(index, i / 2, e)}
-                              />
-                            ) : null
-                          )}
-                      </React.Fragment>
-                    ))}
-                  </Layer>
-                </Stage>
-              </div>
+          <div ref={viewerRef} className="fullscreen-viewer"></div>
 
-              <div className="modal-controls">
-                <label>Opacidad Imagen</label>
-                <input
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.05"
-                  value={modalOpacity}
-                  onChange={(e) => setModalOpacity(parseFloat(e.target.value))}
-                />
-                <label>Opacidad Máscaras</label>
-                <input
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.05"
-                  value={modalOpacityMasks}
-                  onChange={(e) => setModalOpacityMasks(parseFloat(e.target.value))}
-                />
-                <button onClick={handleDelete} disabled={selectedLine === null}>
-                   Eliminar Línea
-                </button>
-              </div>
-            </div>
+          <div className="fullscreen-controls">
+            <button className="btn" onClick={handlePrev} disabled={selectedIndex === 0}>Anterior</button>
+            <button className="btn" onClick={handleNext} disabled={selectedIndex === dicomList.length - 1}>Siguiente</button>
           </div>
         </div>
       )}
-    </div>
+    </>
   );
-};
-
-export default StudyView;
+}

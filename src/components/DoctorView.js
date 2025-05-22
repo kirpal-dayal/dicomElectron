@@ -120,7 +120,11 @@ export default function DoctorView() {
     localStorage.removeItem('user')
     navigate('/', { replace: true })
   }
-  const handleViewPatient = nss => navigate(`/view-patient/${nss}`)
+  // — Navegar a ViewPatient —
+  const handleViewPatient = (nss) => {
+    navigate(`/view-patient/${nss}`)
+  }
+
 
   return (
     <>

@@ -1,152 +1,283 @@
-import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { FaCloudUploadAlt } from 'react-icons/fa';
-import defaultImage from '../assets/images/image.jpg';
-import axios from 'axios';
+// Importación de React y hooks
+import React, { useState, useEffect, useRef } from "react";
 
-function ViewPatient() {
-  const { id } = useParams(); // ¿De qué es el id?
-  const navigate = useNavigate();
-  const [record, setRecord] = useState(null);
+// Hook para obtener parámetros de la URL (NSS del paciente) y para navegación
+import { useParams, useNavigate } from "react-router-dom";
+
+// Ícono para botón de subir ZIP
+import { FaCloudUploadAlt } from "react-icons/fa";
+
+// Cliente HTTP para llamadas al backend
+import axios from "axios";
+
+// Cornerstone y dependencias necesarias para cargar y mostrar imágenes DICOM
+import cornerstone from "cornerstone-core";
+import cornerstoneWADOImageLoader from "cornerstone-wado-image-loader";
+import dicomParser from "dicom-parser";
+
+// Configuración de Cornerstone para poder interpretar imágenes DICOM vía WADO
+cornerstoneWADOImageLoader.external.cornerstone = cornerstone;
+cornerstoneWADOImageLoader.external.dicomParser = dicomParser;
+
+// Configuración adicional para posibles headers HTTP
+cornerstoneWADOImageLoader.configure({
+  beforeSend: function (xhr) {
+    // Aquí se pueden agregar headers personalizados si el backend lo requiere
+  }
+});
+
+// Componente que renderiza una imagen DICOM en una celda usando Cornerstone
+function DicomThumbnail({ imageId }) {
+  const elementRef = useRef(null);
 
   useEffect(() => {
-    const storedPatients = JSON.parse(localStorage.getItem('patients')) || [];
-    const recordId = parseInt(id, 10);
+    if (elementRef.current && imageId) {
+      // Habilita el contenedor para Cornerstone
+      cornerstone.enable(elementRef.current);
 
-    if (isNaN(recordId) || recordId < 0 || recordId >= storedPatients.length) {
-      alert('Error: ID inválido.');
-      navigate('/doctor');
-      return;
+      // Carga y muestra la imagen DICOM
+      cornerstone
+        .loadImage(imageId)
+        .then((image) => {
+          cornerstone.displayImage(elementRef.current, image);
+        })
+        .catch((err) => {
+          console.error("Error cargando imagen DICOM:", err);
+        });
     }
 
-    setRecord(storedPatients[recordId]);
-  }, [id, navigate]);
-
-  const handleZipChange = async (event) => {
-    const file = event.target.files[0];
-    if (!file || !file.name.endsWith('.zip')) {
-      alert("Por favor selecciona un archivo .zip válido");
-      return;
-    }
-
-    if (!record?.nss) {
-      console.warn("⚠️ No hay NSS en el registro actual.");
-      return;
-    }
-
-    const fecha = new Date();
-    const formattedFecha = `${fecha.getFullYear()}-${String(fecha.getMonth() + 1).padStart(2, '0')}-${String(fecha.getDate()).padStart(2, '0')} ${String(fecha.getHours()).padStart(2, '0')}:${String(fecha.getMinutes()).padStart(2, '0')}:${String(fecha.getSeconds()).padStart(2, '0')}`;
-
-    const formData = new FormData();
-    formData.append('zipFile', file);
-    formData.append('nss', record.nss);
-    formData.append('fecha', formattedFecha);
-
-    try {
-      console.log("📤 Enviando archivo ZIP:", file.name);
-      console.log("🧬 Enviando con NSS:", record.nss, "| Fecha:", formattedFecha);
-
-      const response = await axios.post('http://localhost:5000/api/image/upload-zip', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
-
-      console.log("📥 Respuesta del servidor:", response.data);
-
-      const newStudy = {
-        fecha: formattedFecha,
-        tratamiento: 'No disponible',
-      };
-
-      const updatedRecord = {
-        ...record,
-        studies: [...(record.studies || []), newStudy],
-      };
-
-      setRecord(updatedRecord);
-      const storedPatients = JSON.parse(localStorage.getItem('patients')) || [];
-      storedPatients[parseInt(id)] = updatedRecord;
-      localStorage.setItem('patients', JSON.stringify(storedPatients));
-
-      alert('✅ ZIP subido correctamente');
-      navigate(`/estudio/${id}/${encodeURIComponent(formattedFecha)}`);
-    } catch (err) {
-      alert('❌ Error al subir el archivo ZIP');
-      console.error("🚨 Error de subida:", err);
-    }
-  };
-
-  if (!record) return <p>Cargando...</p>;
+    // Limpieza cuando el componente se desmonta
+    return () => {
+      if (elementRef.current) {
+        cornerstone.disable(elementRef.current);
+      }
+    };
+  }, [imageId]);
 
   return (
-    <div className="view-container">
-      <div className="left-panel">
-        <h2>Información del Paciente</h2>
-        <form>
-          <label>
-            NSS:
-            <input type="text" value={record.nss} disabled />
-          </label>
-          <label>
-            Fecha de Nacimiento:
-            <input type="date" value={record.birthDate} disabled />
-          </label>
-          <label>
-            Sexo:
-            <select value={record.sex} disabled>
-              <option value="masculino">Masculino</option>
-              <option value="femenino">Femenino</option>
-            </select>
-          </label>
-
-          <button type="button" onClick={() => navigate(-1)}>Volver</button>
-        </form>
-      </div>
-
-      <div className="right-panel">
-        <h2>Estudios</h2>
-        <div className="grid-container">
-          {(record.studies || []).map((study, index) => (
-            <div key={index} className="grid-item">
-              <div className="image-container">
-                <img
-                  src={defaultImage}
-                  alt={`Imagen ${index + 1}`}
-                  className="grid-image"
-                  onClick={() => navigate(`/estudio/${id}/${encodeURIComponent(study.fecha)}`)}
-                  style={{ cursor: 'pointer' }}
-                />
-              </div>
-              <div className="study-text">
-                <label><strong>Fecha de Estudio:</strong> {new Date(study.fecha).toLocaleString()}</label>
-                <label><strong>Tratamiento:</strong> {study.tratamiento}</label>
-              </div>
-            </div>
-          ))}
-
-          {/* Componente para cargar ZIP */}
-          <div className="grid-item">
-            <div className="upload-icon">
-              <label htmlFor="zip-upload" style={{ cursor: 'pointer' }}>
-                <FaCloudUploadAlt size={50} color="#007bff" />
-                <p>Selecciona archivo ZIP</p>
-              </label>
-              <input
-                id="zip-upload"
-                type="file"
-                accept=".zip"
-                style={{ display: 'none' }}
-                onChange={handleZipChange}
-              />
-            </div>
-          </div>
-        </div>
-
-        <button className="btn-next" onClick={() => navigate(`/analisis-detallado/${id}`)}>
-          Comparar volúmenes
-        </button>
-      </div>
-    </div>
+    <div
+      ref={elementRef}
+      style={{
+        width: "150px",
+        height: "150px",
+        backgroundColor: "black",
+        margin: "auto",
+        borderRadius: "5px",
+      }}
+    />
   );
 }
 
-export default ViewPatient;
+// Utilidad para convertir una fecha JS a formato SQL (YYYY-MM-DD HH:mm:ss)
+function toSQLDateString(fecha) {
+  if (!fecha) return "";
+  let d = typeof fecha === "string" ? new Date(fecha) : fecha;
+  if (isNaN(d)) return fecha;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}:${String(d.getSeconds()).padStart(2, "0")}`;
+}
+
+export default function ViewPatient() {
+  // Obtiene el NSS desde la URL
+  const { id: nss } = useParams();
+
+  // Hook para redirigir a otras páginas
+  const navigate = useNavigate();
+
+  // Estado para almacenar el expediente completo del paciente
+  const [record, setRecord] = useState(null);
+
+  // Estado de carga y error
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  // Función principal para cargar expediente y estudios desde backend
+  const fetchRecord = async () => {
+    try {
+      setLoading(true);
+
+      // 1. Obtener expediente del paciente
+      const { data: exp } = await axios.get(`http://localhost:5000/api/expedientes/${nss}`);
+
+      // 2. Para cada estudio del paciente, obtener la lista de archivos DICOM
+      const studiesWithDicom = await Promise.all(
+        (exp.studies || []).map(async (s) => {
+          const safeFecha = toSQLDateString(s.fecha).replace(/[: ]/g, "_");
+          const folder = `${exp.nss}_${safeFecha}`; // carpeta física del estudio
+
+          try {
+            // Solicita la lista de archivos DICOM para ese estudio
+            const res = await axios.get(`http://localhost:5000/api/image/dicom-list/${folder}`);
+            const files = res.data;
+
+            if (!files || files.length === 0) throw new Error("No DICOM files");
+
+            // Toma el archivo DICOM "de en medio" para mostrar como preview
+            const midIdx = Math.floor(files.length / 2);
+            const dicomFile = files[midIdx];
+
+            // Genera URL compatible con Cornerstone
+            const dicomUrl = `wadouri:http://localhost:5000/api/image/dicom/${folder}/${dicomFile}`;
+
+            return {
+              ...s,
+              dicomUrl, // se usará para el mini visor
+            };
+          } catch (err) {
+            // En caso de error, se omite el visor
+            return { ...s, dicomUrl: null };
+          }
+        })
+      );
+
+      // Almacena expediente con estudios enriquecidos con dicomUrl
+      setRecord({ ...exp, studies: studiesWithDicom });
+      setError("");
+    } catch (err) {
+      setError("No se pudo cargar el expediente o sus estudios");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Ejecuta fetchRecord al cargar el componente
+  useEffect(() => {
+    if (!nss) {
+      alert("NSS inválido");
+      return navigate("/doctor", { replace: true });
+    }
+    fetchRecord();
+  }, [nss, navigate]);
+
+  // Maneja la subida de un archivo ZIP con estudios DICOM
+  const handleZipChange = async (e) => {
+    const file = e.target.files[0];
+    if (!file?.name.endsWith(".zip")) return alert("Selecciona un archivo .zip válido");
+
+    const now = new Date();
+    const formatted = toSQLDateString(now);
+
+    const fd = new FormData();
+    fd.append("zipFile", file); // archivo ZIP
+    fd.append("nss", nss);      // paciente
+    fd.append("fecha", formatted); // timestamp para el nuevo estudio
+
+    try {
+      // Llama al endpoint de subida ZIP definido en backend/routes/imageRoutes.js
+      await axios.post("http://localhost:5000/api/image/upload-zip", fd, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      alert("ZIP subido correctamente");
+
+      // Recarga expediente y estudios
+      await fetchRecord();
+    } catch (err) {
+      alert("Error al subir ZIP");
+    }
+  };
+
+  // Renderiza mensaje de carga o error
+  if (loading) {
+    return <div style={{ padding: "2rem", textAlign: "center" }}>Cargando expediente…</div>;
+  }
+  if (error || !record) {
+    return <div style={{ padding: "2rem", textAlign: "center", color: "red" }}>{error || "Error desconocido"}</div>;
+  }
+
+  // Render principal de la vista del paciente
+  return (
+    <div className="view-container">
+      {/* Información del Paciente */}
+      <section className="card">
+        <h2>Información del Paciente</h2>
+        <div className="form-group">
+          <label>NSS</label>
+          <input value={record.nss} disabled />
+        </div>
+        <div className="form-group">
+          <label>Fecha de Nacimiento</label>
+          <input
+            type="date"
+            value={new Date(record.fecha_nacimiento).toISOString().split("T")[0]}
+            disabled
+          />
+        </div>
+        <div className="form-group">
+          <label>Sexo</label>
+          <input
+            value={record.sexo === 1 ? "Hombre" : record.sexo === 2 ? "Mujer" : "Otro"}
+            disabled
+          />
+        </div>
+        <div className="actions">
+          <button className="btn" onClick={() => navigate(-1)}>
+            Volver
+          </button>
+        </div>
+      </section>
+
+      {/* Estudios con mini visores DICOM */}
+      <section className="card">
+        <h2>Estudios ({record.studies.length})</h2>
+        <div className="grid-container">
+          {record.studies.map((s, i) => (
+            <div
+              key={i}
+              className="grid-item"
+              onClick={() =>
+                navigate(`/estudio/${record.nss}/${encodeURIComponent(toSQLDateString(s.fecha))}`)
+              }
+              style={{ cursor: "pointer" }}
+            >
+              {/* Visor DICOM si hay imagen disponible */}
+              {s.dicomUrl ? (
+                <DicomThumbnail imageId={s.dicomUrl} />
+              ) : (
+                // Si no hay imagen, muestra placeholder
+                <div
+                  style={{
+                    width: "150px",
+                    height: "150px",
+                    backgroundColor: "#eee",
+                    display: "flex",
+                    justifyContent: "center",
+                    alignItems: "center",
+                    color: "#666",
+                    fontWeight: "bold",
+                    borderRadius: "5px",
+                    margin: "auto",
+                  }}
+                >
+                  Sin imagen
+                </div>
+              )}
+              <p><strong>Fecha:</strong> {new Date(s.fecha).toLocaleString()}</p>
+              <p><strong>Tratamiento:</strong> {s.tratamiento || s.descripcion || '-'}</p>
+            </div>
+          ))}
+
+          {/* Botón para subir nuevo ZIP */}
+          <div className="grid-item">
+            <label htmlFor="zip-upload" className="btn-icon">
+              <FaCloudUploadAlt size={40} />
+              <p>Subir ZIP</p>
+            </label>
+            <input
+              id="zip-upload"
+              type="file"
+              accept=".zip"
+              style={{ display: "none" }}
+              onChange={handleZipChange}
+            />
+          </div>
+        </div>
+
+        {/* Botón para análisis detallado */}
+        <div className="actions">
+          <button className="btn" onClick={() => navigate(`/analisis-detallado/${record.nss}`)}>
+            Comparar volúmenes
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}

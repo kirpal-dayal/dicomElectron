@@ -3,9 +3,13 @@
     "adm-zip": "^0.5.16",
     "axios": "^1.8.4",
     "child_process": "^1.0.2",
+    "cornerstone-core": "^2.6.1",
+    "cornerstone-wado-image-loader": "^4.13.2",
     "cors": "^2.8.5",
+    "dicom-parser": "^1.8.21",
     "express": "^4.21.2",
     "express-fileupload": "^1.5.1",
+    "jpeg-js": "^0.4.4",
     "konva": "^9.3.18",
     "multer": "^1.4.5-lts.2",
     "mysql2": "^3.14.0",
@@ -39,5 +43,6 @@
       "last 1 firefox version",
       "last 1 safari version"
     ]
-  }
+  },
+  "proxy": "http://localhost:5000"
 }
