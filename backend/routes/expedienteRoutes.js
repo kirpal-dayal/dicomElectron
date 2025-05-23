@@ -1,9 +1,37 @@
+/**
+ * routes/expedienteRoutes.js (o expedienteEstudios.js)
+ * 
+ * Este módulo define rutas relacionadas con los **estudios médicos** de los pacientes
+ * dentro de un expediente, incluyendo la creación y consulta de estudios asociados
+ * al número de seguridad social (NSS).
+ * 
+ * - Este archivo es cargado automáticamente por `server.js` al iniciar el backend.
+ * - Se monta bajo el prefijo `/api` (por ejemplo, `/api/expedientes/:nss/studies`).
+ * - Utiliza `connectionDb.js` para realizar consultas a la base de datos MySQL.
+ * - Interactúa con las tablas:
+ *    - `expediente` → Información del paciente.
+ *    - `estudio`    → Información de estudios DICOM realizados.
+ * - Consumido por el frontend en vistas como `ViewPatient.js` y `AnalisisDetallado`.
+ * 
+ * - POST `/expedientes/:nss/studies`:
+ *     Crea un nuevo estudio (registro en tabla `estudio`) asociado a un expediente existente.
+ *     Se requiere la fecha del estudio, y puede incluir descripción y volúmenes.
+ *
+ * - GET `/expedientes/:nss`:
+ *     Devuelve los datos del expediente (sexo, fecha nacimiento, etc.)
+ *     junto con todos los estudios registrados para ese paciente, ordenados por fecha.
+ *
+ * Estas rutas se utilizan en el frontend para visualizar y registrar estudios
+ * relacionados con cada paciente, así como para cargar datos en vistas clínicas.
+ *
+ * - El NSS funciona como clave primaria para vincular expedientes y estudios.
+ * - Las fechas deben estar en formato SQL: `YYYY-MM-DD HH:mm:ss`.
+ */
+
 const express = require('express');
 const db = require('../connectionDb');
 const router = express.Router();
 
-// POST /expedientes/:nss/studies
-// Crea un nuevo estudio para un expediente dado
 router.post('/:nss/studies', (req, res) => {
   const { nss } = req.params;
   const {
