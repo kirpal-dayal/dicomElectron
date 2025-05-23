@@ -1,3 +1,19 @@
+/**
+ * StudyView.js 
+ * Componente React para visualizar estudios médicos (DICOM) de un paciente.
+ * - Carga y muestra las imágenes DICOM de un estudio específico (basado en el NSS y la fecha recibidos en la URL).
+ * - Utiliza Cornerstone y cornerstone-wado-image-loader para renderizar imágenes médicas directamente en el navegador.
+ * - Muestra una galería de miniaturas, permite ver cada imagen a pantalla completa y navegar entre ellas, quizas se deba pensar en el tamano
+ * - Permite volver al historial de estudios desde la misma vista.
+
+ * - Solicita la lista de archivos DICOM al backend (`/api/image/dicom-list/:folder`) usando Axios.
+ * - Descarga cada archivo DICOM al abrirlo y lo procesa usando Cornerstone.
+ * - Se espera que la API backend proporcione acceso seguro a los archivos.
+ * - La navegación depende de React Router (useNavigate, useParams).
+ * 
+ * - El backend debe exponer los endpoints REST indicados que estan en imageRoutes en backend.
+ * - Este componente es autónomo visualmente y no depende de otros componentes salvo la navegación.
+ */
 import React, { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import axios from "axios";
@@ -182,7 +198,7 @@ export default function StudyView() {
             viewport.voi.windowCenter = 40;
             cornerstone.setViewport(el, viewport);
 
-            // También puedes usar fitToWindow como alternativa
+            // También puedes usar fitToWindow como alternativa, se puede probar si falla o tarda demasiado en cargar
             // cornerstone.fitToWindow(el);
           } catch (err) {
             console.error("Error al mostrar miniatura DICOM:", err);

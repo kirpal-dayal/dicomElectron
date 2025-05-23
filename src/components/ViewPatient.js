@@ -1,3 +1,29 @@
+/**
+ * ViewPatient.jsx
+ * 
+ * FRONTEND – Página principal para visualizar el expediente de un paciente y sus estudios médicos (imágenes DICOM).
+
+ * - Muestra la información básica del paciente usando su NSS (Número de Seguridad Social) desde la URL.
+ * - Lista todos los estudios del paciente consultando la API backend.
+ * - Para cada estudio, busca y muestra una miniatura de una imagen DICOM (utilizando Cornerstone para renderizar DICOM en frontend).
+ * - Permite subir un nuevo estudio en formato ZIP (con imágenes DICOM), que se envía al backend.
+ * - Enlaza a la vista detallada de un estudio (visor avanzado) y a un análisis comparativo de volúmenes.
+ 
+ * - Hace peticiones HTTP al backend Express:
+ *    · Para obtener la info del paciente y sus estudios.
+ *    · Para pedir la lista de archivos DICOM de cada estudio.
+ *    · Para subir nuevos archivos ZIP de estudios.
+ *    · Integra directamente con los endpoints definidos en backend/routes/imageRoutes.js.
+ * - Usa Cornerstone + WADOImageLoader para mostrar imágenes DICOM, compatible con el backend que expone los archivos.
+
+ * - El backend debe soportar la estructura de carpetas por paciente y estudio para que el visor funcione correctamente.
+ * - Si no se encuentra un archivo DICOM válido, se muestra un placeholder ("Sin imagen").
+ * - El diseño asume que los estudios pueden tener tratamientos o descripciones asociadas.
+
+ * - Se recomienda que las rutas del backend estén protegidas (token/credenciales) en ambientes productivos.
+ * - El componente maneja errores de carga y muestra mensajes claros al usuario.
+ */
+
 // Importación de React y hooks
 import React, { useState, useEffect, useRef } from "react";
 
