@@ -1,5 +1,5 @@
 /**
- * imageRoutes.js
+ * // backend/routes/imageRoutes.js
  * 
  * RUTAS BACKEND – API para manejo de imágenes DICOM en el sistema de visualización médica.
 
@@ -20,10 +20,14 @@
 
  * - No se hace validación exhaustiva del contenido del ZIP (se asume origen confiable).
  * - Recomendable agregar autenticación/autorización para entornos productivos.
+ * Cada imagen DICOM se guarda como LONGBLOB en la tabla imagen
+
+El campo num_tomo se asigna en orden desde 1
+
+El endpoint /dicom/:folder/:filename se conserva intacto para que siga sirviendo desde disco (para Cornerstone)
+
+Se usa INSERT IGNORE para evitar error si ya existe un registro de estudio con la misma fecha y NSS
  */
-
-// backend/routes/imageRoutes.js
-
 const express  = require('express');
 const fs       = require('fs');
 const path     = require('path');
@@ -34,52 +38,9 @@ const { nameDirectoryDicom } = require('../configConst');
 const router = express.Router();
 
 /**
- * Recibe un ZIP con archivos DICOM, los extrae a una carpeta única y registra el estudio en la base de datos.
- * NO convierte ni procesa los archivos; los deja tal cual para ser visualizados por el frontend con Cornerstone.
+ * Utilidad: Recursivamente encuentra archivos DICOM válidos (.dcm o sin extensión)
  */
-router.post('/upload-zip', async (req, res) => {
-  try {
-    if (!req.files || !req.files.zipFile) return res.status(400).send('No ZIP');
-    const zipFile = req.files.zipFile;
-    let { nss, fecha } = req.body;
-    if (!nss || !fecha) return res.status(400).send('Faltan parámetros');
-
-    // Normaliza la fecha (formato compatible con la carpeta)
-    fecha = fecha.replace('T', ' ').split('.')[0];
-    const safeFecha = fecha.replace(/[: ]/g, '_');
-    const studyDir  = path.join(__dirname, '..', nameDirectoryDicom, `${nss}_${safeFecha}`);
-    fs.mkdirSync(studyDir, { recursive: true });
-
-    // 1. Guarda y descomprime el ZIP en la carpeta del estudio
-    const zipPath = path.join(studyDir, zipFile.name);
-    await zipFile.mv(zipPath);
-    await new Promise(r =>
-      fs.createReadStream(zipPath)
-        .pipe(unzipper.Extract({ path: studyDir }))
-        .on('close', r)
-    );
-
-    // 2. Inserta registro en la tabla estudio
-    await new Promise((ok, ko) => {
-      db.query(
-        'INSERT INTO estudio (nss_expediente, fecha) VALUES (?,?)',
-        [nss, fecha],
-        err => err ? ko(err) : ok()
-      );
-    });
-
-    res.json({ success: true });
-  } catch(err) {
-    console.error(err);
-    res.status(500).send('Error al procesar ZIP');
-  }
-});
-
-/**
- * Recursivamente busca archivos DICOM válidos en el estudio.
- * Incluye archivos .dcm, .DCM y SIN EXTENSIÓN (importante para IM0001L0, etc).
- */
-function findDicomFiles(dir, base='') {
+function findDicomFiles(dir, base = '') {
   let dicoms = [];
   const files = fs.readdirSync(dir, { withFileTypes: true });
   for (let f of files) {
@@ -87,10 +48,7 @@ function findDicomFiles(dir, base='') {
     const fullPath = path.join(dir, f.name);
     if (f.isDirectory()) {
       dicoms = dicoms.concat(findDicomFiles(fullPath, relPath));
-    } else if (
-      /\.dcm$/i.test(f.name) ||   // .dcm o .DCM
-      !/\./.test(f.name)          // SIN EXTENSIÓN
-    ) {
+    } else if (/\.dcm$/i.test(f.name) || !/\./.test(f.name)) {
       dicoms.push(relPath.replace(/\\/g, '/'));
     }
   }
@@ -98,29 +56,83 @@ function findDicomFiles(dir, base='') {
 }
 
 /**
- * Devuelve la lista de archivos DICOM (rutas relativas) de un estudio.
- * Ejemplo de respuesta: ["IM0001L0", "IM0002L0", ...]
+ * POST /upload-zip
+ * Recibe un ZIP con archivos DICOM y:
+ *  1. Lo guarda y extrae en carpeta `DICOM/nss_fecha/`
+ *  2. Registra el estudio en la tabla `estudio`
+ *  3. Guarda cada imagen en la tabla `imagen` con LONGBLOB
  */
-// Lista archivos DICOM en la carpeta de estudio
+router.post('/upload-zip', async (req, res) => {
+  try {
+    if (!req.files || !req.files.zipFile) return res.status(400).send('No ZIP');
+
+    const zipFile = req.files.zipFile;
+    let { nss, fecha } = req.body;
+    if (!nss || !fecha) return res.status(400).send('Faltan parámetros');
+
+    // Formato SQL de fecha y nombre seguro para carpeta
+    fecha = fecha.replace('T', ' ').split('.')[0];
+    const safeFecha = fecha.replace(/[: ]/g, '_');
+    const studyDir = path.join(__dirname, '..', nameDirectoryDicom, `${nss}_${safeFecha}`);
+    fs.mkdirSync(studyDir, { recursive: true });
+
+    // Guardar y extraer ZIP
+    const zipPath = path.join(studyDir, zipFile.name);
+    await zipFile.mv(zipPath);
+    await new Promise(resolve =>
+      fs.createReadStream(zipPath)
+        .pipe(unzipper.Extract({ path: studyDir }))
+        .on('close', resolve)
+    );
+
+    // Insertar estudio
+    await new Promise((resolve, reject) => {
+      db.query(
+        'INSERT IGNORE INTO estudio (nss_expediente, fecha) VALUES (?, ?)',
+        [nss, fecha],
+        (err) => err ? reject(err) : resolve()
+      );
+    });
+
+    // Leer y almacenar DICOMs en la BD
+    const dicomFiles = findDicomFiles(studyDir);
+    for (let i = 0; i < dicomFiles.length; i++) {
+      const relativePath = dicomFiles[i];
+      const fullPath = path.join(studyDir, relativePath);
+      const buffer = fs.readFileSync(fullPath);
+      await new Promise((resolve, reject) => {
+        db.query(
+          'INSERT INTO imagen (nss_exp, fecha_estudio, num_tomo, imagen) VALUES (?, ?, ?, ?)',
+          [nss, fecha, i + 1, buffer],
+          (err) => err ? reject(err) : resolve()
+        );
+      });
+    }
+
+    res.json({ success: true, message: `Subida exitosa. ${dicomFiles.length} imágenes registradas.` });
+  } catch (err) {
+    console.error('Error en subida ZIP:', err);
+    res.status(500).send('Error al procesar ZIP');
+  }
+});
+
+/**
+ * GET /dicom-list/:folder
+ * Devuelve lista de archivos extraídos para un estudio
+ */
 router.get('/dicom-list/:folder', (req, res) => {
-  console.log("[BACKEND] Solicitud para carpeta DICOM:", req.params.folder);
   const folder = req.params.folder;
   const folderPath = path.join(__dirname, '..', nameDirectoryDicom, folder);
-  console.log('Solicitando lista para carpeta:', folder);
-  console.log('Ruta absoluta:', folderPath);
   if (!fs.existsSync(folderPath)) {
-    console.log('No existe la carpeta:', folderPath);
-    return res.status(404).json({ error: 'Folder not found' });
+    return res.status(404).json({ error: 'Carpeta no encontrada' });
   }
-  const files = fs.readdirSync(folderPath).filter(f =>
-    !fs.statSync(path.join(folderPath, f)).isDirectory()
-  );
-  console.log('Archivos encontrados:', files);
+  const files = findDicomFiles(folderPath);
   res.json(files);
 });
 
 /**
- * Sirve un archivo DICOM real, permitiendo rutas relativas (subcarpetas).
+ * GET /dicom/:folder/:filename
+ * Sirve un archivo DICOM específico desde disco
  */
 router.get('/dicom/:folder/:filename(*)', (req, res) => {
   const { folder, filename } = req.params;
