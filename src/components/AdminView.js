@@ -2,19 +2,44 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import NavBar from './NavBar';
-import ClinicalForm from './ClinicalForm';
 import axios from 'axios'; // IMPORTANTE: Axios para conectar al backend
 
 function AdminView() {
+  const navigate = useNavigate();
+  const stored = JSON.parse(localStorage.getItem('user') || '{}');
+  const { username = 'Admin', id: adminId = null } = stored;
+
+  // Estados principales
+  const [allDoctors, setAllDoctors] = useState([]); // lista maestra
+  const [doctors, setDoctors] = useState([])       // lista filtrada
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [records, setRecords] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
-  const navigate = useNavigate();
 
-  const username = 'Admin';
   const menuOptions = ['Crear usuario', 'Borrar', 'Ver perfil', 'Salir'];
 
   // Cargar todos los doctores al montar
+
+  const fetchAllDoctors = async () => {
+    setLoading(true)
+    try {
+      const { data } = await axios.get('http://localhost:5000/doctores')
+      setAllDoctors(data)
+      setDoctors(data)
+      setError('')
+    } catch {
+      setError('No se pudieron cargar los doctores')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchAllDoctors()
+  }, [])
+  /*
   useEffect(() => {
     fetchDoctors();
   }, []);
@@ -27,10 +52,12 @@ function AdminView() {
       console.error(' Error al cargar doctores:', error);
     }
   };
+  */
 
   const handleSearch = async () => {
     if (!searchTerm.trim()) {
-      fetchDoctors();
+      //fetchDoctors();
+      fetchAllDoctors();
       return;
     }
 
@@ -70,23 +97,24 @@ function AdminView() {
         <h1>Bienvenido, {username}</h1>
         <p>Aquí puedes gestionar el sistema.</p>
         <input
-  type="text"
-  placeholder="Escribe el ID o nombre de un usuario..."
-  value={searchTerm}
-  onChange={(e) => {
-    const value = e.target.value;
-    setSearchTerm(value);
+          type="text"
+          placeholder="Escribe el ID o nombre de un usuario..."
+          value={searchTerm}
+          onChange={(e) => {
+            const value = e.target.value;
+            setSearchTerm(value);
 
-    if (value.trim() === '') {
-      fetchDoctors(); // Si el campo está vacío, recarga todos los doctores automáticamente
-    }
-  }}
-  onKeyDown={(e) => {
-    if (e.key === 'Enter') {
-      handleSearch();
-    }
-  }}
-/>
+            if (value.trim() === '') {
+              //fetchDoctors(); // Si el campo está vacío, recarga todos los doctores automáticamente
+              fetchAllDoctors();
+            }
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              handleSearch();
+            }
+          }}
+        />
 
       </div>
 
@@ -98,38 +126,35 @@ function AdminView() {
         />
       )}
 
-      {/* Tabla de registros */}
-      <div className="records-container">
-        <h2>Registros Guardados</h2>
-        {records.length === 0 ? (
-          <p>No hay registros aún.</p>
-        ) : (
-          <table>
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Nombre</th>
-                <th>Tipo de usuario</th>
-                <th>Acciones</th>
+      {loading && <p>Cargando doctores</p>}
+      {error && <p className="error">{error}</p>}
+      {!loading && !doctors.length && <p>No hay doctores aún.</p>}
+      {doctors.length > 0 && (
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Nombre</th>
+            </tr>
+          </thead>
+          <tbody>
+            {doctors.map(d => (
+              <tr key={d.id}>
+                <td>{d.id}</td>
+                <td>{d.nombre_doc}</td>
+                <td>
+                  <button
+                    className="btn-primary"
+                    onClick={() => handleViewDoctor(d.id)}
+                  >
+                    Ver
+                  </button>
+                </td>
               </tr>
-            </thead>
-            <tbody>
-              {records.map((record, index) => (
-                <tr key={index}>
-                  <td>{record.id}</td>
-                  <td>{record.nombre_doc}</td>
-                  <td>Doctor</td>
-                  <td>
-                    <button onClick={() => navigate(`/view/${record.id}`)}>
-                      Vista
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
+            ))}
+          </tbody>
+        </table>
+      )}
     </div>
   );
 }
