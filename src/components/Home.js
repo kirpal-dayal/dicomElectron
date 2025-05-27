@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 
 export default function Home() {
-  const [form, setForm]           = useState({ username: '', password: '' });
+  const [form, setForm]           = useState({ id: '', password: '' });
   const [errors, setErrors]       = useState({});
   const [loading, setLoading]     = useState(false);
   const [serverError, setServerError] = useState('');
@@ -20,7 +20,7 @@ export default function Home() {
 
   const validate = () => {
     const errs = {};
-    if (!form.username.trim()) errs.username = 'Usuario requerido';
+    if (!form.id.trim()) errs.id = 'Usuario requerido';
     if (!form.password.trim()) errs.password = 'Contraseña requerida';
     setErrors(errs);
     return Object.keys(errs).length === 0;
@@ -131,20 +131,20 @@ export default function Home() {
 
       <div className="home-container">
         <form className="login-card" onSubmit={handleSubmit}>
-          <h2 className="title">Iniciar Sesión</h2>
+          <h2 className="title">Iniciar</h2>
 
           <div className="form-group">
-            <label htmlFor="username" className="label">Usuario</label>
+            <label htmlFor="id" className="label">ID del Usuario</label>
             <input
-              id="username"
-              name="username"
+              id="id"
+              name="id"
               className="input"
-              value={form.username}
+              value={form.id}
               onChange={handleChange}
-              placeholder="Escribe tu usuario"
+              placeholder="Escribe el ID de tu usuario"
               disabled={loading}
             />
-            {errors.username && <p className="error-text">{errors.username}</p>}
+            {errors.id && <p className="error-text">{errors.id}</p>} {/* NOTA: Esto valida al usuario*/}
           </div>
 
           <div className="form-group">
