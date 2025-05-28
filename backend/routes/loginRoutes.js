@@ -9,7 +9,7 @@
  * - Utiliza `connectionDb.js` para realizar consultas a la base de datos MySQL.
  * - Es para el frontend para iniciar sesión en el sistema.
  *
- * - POST `/login`: Recibe un `username` y `password`, y valida las credenciales
+ * - POST `/login`: Recibe un `id` y `password`, y valida las credenciales
  *   contra dos tablas distintas:
  *     - `admin`   → para usuarios administradores.
  *     - `doctor`  → para usuarios médicos.
@@ -35,10 +35,10 @@ const router  = express.Router();
 const db      = require('../connectionDb');
 
 router.post('/login', (req, res) => {
-  const { username, password } = req.body;
-  console.log(' Intentando login con:', username, password);
+  const { id, password } = req.body;
+  console.log(' Intentando login con:', id, password);
 
-  if (!username || !password) {
+  if (!id || !password) {
     console.log(' Faltan campos');
     return res.status(400).send('Faltan datos');
   }
@@ -48,10 +48,10 @@ router.post('/login', (req, res) => {
     SELECT id_admin    AS id,
            nombre_admin AS username
     FROM admin
-    WHERE nombre_admin = ? 
+    WHERE id_admin = ? 
       AND contrasena_admin = ?
   `;
-  db.query(adminQuery, [username, password], (err, adminResults) => {
+  db.query(adminQuery, [id, password], (err, adminResults) => {
     if (err) {
       console.error(' Error consultando admin:', err);
       return res.status(500).send('Error al consultar admin');
@@ -70,10 +70,10 @@ router.post('/login', (req, res) => {
       SELECT id           AS id,
              nombre_doc    AS username
       FROM doctor
-      WHERE nombre_doc = ?
+      WHERE id = ?
         AND contrasena_doc = ?
     `;
-    db.query(doctorQuery, [username, password], (err, doctorResults) => {
+    db.query(doctorQuery, [id, password], (err, doctorResults) => {
       if (err) {
         console.error(' Error consultando doctor:', err);
         return res.status(500).send('Error al consultar doctor');
