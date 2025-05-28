@@ -2,35 +2,53 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import NavBar from './NavBar';
-import ClinicalForm from './ClinicalForm';
 import axios from 'axios'; // IMPORTANTE: Axios para conectar al backend
 
 function AdminView() {
-  const [showForm, setShowForm] = useState(false);
+  const navigate = useNavigate();
+  const stored = JSON.parse(localStorage.getItem('user') || '{}');
+  const { username = 'Admin', id: adminId = null } = stored;
+
+  // Estados principales
+  const [allDoctors, setAllDoctors] = useState([]); // lista maestra
+  const [doctors, setDoctors] = useState([])       // lista filtrada
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [showFormNewDoc, setShowFormNewDoc] = useState(false);
   const [records, setRecords] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
-  const navigate = useNavigate();
 
-  const username = 'Admin';
+  // — Modal de registro de doctores —
+    const [form, setForm] = useState({ id_doc:'', nombre_doc:'', contrasena_doc:'' })
+    const [saving, setSaving] = useState(false)
+    const [formError, setFormError] = useState('')
+
   const menuOptions = ['Crear usuario', 'Borrar', 'Ver perfil', 'Salir'];
 
   // Cargar todos los doctores al montar
-  useEffect(() => {
-    fetchDoctors();
-  }, []);
 
-  const fetchDoctors = async () => {
+  const fetchAllDoctors = async () => {
+    setLoading(true)
     try {
-      const response = await axios.get('http://localhost:5000/doctores');
-      setRecords(response.data);
-    } catch (error) {
-      console.error(' Error al cargar doctores:', error);
+      const { data } = await axios.get('http://localhost:5000/doctores')
+      setAllDoctors(data)
+      setDoctors(data)
+      setError('')
+    } catch {
+      setError('No se pudieron cargar los doctores')
+    } finally {
+      setLoading(false)
     }
-  };
+  }
+
+  useEffect(() => {
+    fetchAllDoctors()
+  }, [])
 
   const handleSearch = async () => {
     if (!searchTerm.trim()) {
-      fetchDoctors();
+      //fetchDoctors();
+      fetchAllDoctors();
       return;
     }
 
@@ -50,86 +68,168 @@ function AdminView() {
     }
   };
 
-  // Función para agregar un nuevo registro (por ahora sigue en localStorage, luego la adaptamos)
-  const handleAddRecord = (newRecord) => {
-    const updatedRecords = [...records, newRecord];
-    setRecords(updatedRecords);
-    localStorage.setItem('records', JSON.stringify(updatedRecords));
-    setShowForm(false);
-  };
+  
+  // — Handlers del modal —
+  const handleChange = e => {
+    const { name, value } = e.target
+    setForm(f => ({ ...f, [name]: value }))
+    setFormError('')
+  }
+
+  const handleAddDoctor = async e => {
+    e.preventDefault()
+    const { id_doc, nombre_doc, contrasena_doc} = form;
+    if (!id_doc || !nombre_doc || !contrasena_doc) {
+      setFormError('Completa todos los campos');
+      return;
+    }
+    if (!adminId) {
+      setFormError('Administrador no identificado en sesión');
+      return;
+    }
+    setSaving(true);
+    try {
+      await axios.post('http://localhost:5000/doctores', {
+        id: id_doc,
+        nombre: nombre_doc,
+        contrasena: contrasena_doc,
+        idAdminCreador: adminId
+      });
+      await fetchAllDoctors();
+      setShowFormNewDoc(false);
+      setForm({ id_doc:'', nombre_doc:'', contrasena_doc:''})
+    } catch (err) {
+      setFormError(err.response?.data || 'Error al crear doctor')
+    } finally {
+      setSaving(false)
+    }
+  }
 
   return (
     <div>
-      <NavBar
+      {/*<NavBar
         username={username}
         menuOptions={menuOptions}
-        onCreate={() => setShowForm(true)}
-      />
+        onCreate={() => setShowFormNewDoc(true)}
+      />*/}
+      <header className="navbar">
+        <h1>{username}</h1>
+        <div className="nav-buttons">
+          <button className="btn" onClick={() => setShowFormNewDoc(true)}>
+            Crear Doctor
+          </button>
+        </div>
+      </header>
 
       <div className="admin-container">
         <h1>Bienvenido, {username}</h1>
-        <p>Aquí puedes gestionar el sistema.</p>
+        <p>Aquí puedes gestionar a los usuarios doctores.</p>
         <input
-  type="text"
-  placeholder="Escribe el ID o nombre de un usuario..."
-  value={searchTerm}
-  onChange={(e) => {
-    const value = e.target.value;
-    setSearchTerm(value);
+          type="text"
+          placeholder="Escribe el ID o nombre de un usuario..."
+          value={searchTerm}
+          onChange={(e) => {
+            const value = e.target.value;
+            setSearchTerm(value);
 
-    if (value.trim() === '') {
-      fetchDoctors(); // Si el campo está vacío, recarga todos los doctores automáticamente
-    }
-  }}
-  onKeyDown={(e) => {
-    if (e.key === 'Enter') {
-      handleSearch();
-    }
-  }}
-/>
+            if (value.trim() === '') {
+              //fetchDoctors(); // Si el campo está vacío, recarga todos los doctores automáticamente
+              fetchAllDoctors();
+            }
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              handleSearch();
+            }
+          }}
+        />
 
       </div>
 
-      {/* Formulario de agregar doctor */}
-      {showForm && (
-        <ClinicalForm
-          closeForm={() => setShowForm(false)}
-          addRecord={handleAddRecord}
-        />
+      {loading && <p>Cargando doctores</p>}
+      {error && <p className="error">{error}</p>}
+      {!loading && !doctors.length && <p>No hay doctores aún.</p>}
+      {doctors.length > 0 && (
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Nombre</th>
+            </tr>
+          </thead>
+          <tbody>
+            {doctors.map(d => (
+              <tr key={d.id}>
+                <td>{d.id}</td>
+                <td>{d.nombre_doc}</td>
+                <td>
+                  <button
+                    className="btn-primary"
+                    onClick={() => handleViewDoctor(d.id)}
+                  >
+                    Ver
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       )}
 
-      {/* Tabla de registros */}
-      <div className="records-container">
-        <h2>Registros Guardados</h2>
-        {records.length === 0 ? (
-          <p>No hay registros aún.</p>
-        ) : (
-          <table>
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Nombre</th>
-                <th>Tipo de usuario</th>
-                <th>Acciones</th>
-              </tr>
-            </thead>
-            <tbody>
-              {records.map((record, index) => (
-                <tr key={index}>
-                  <td>{record.id}</td>
-                  <td>{record.nombre_doc}</td>
-                  <td>Doctor</td>
-                  <td>
-                    <button onClick={() => navigate(`/view/${record.id}`)}>
-                      Vista
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
+      {/* Modal de registro de nuevo Doctor*/}
+      {showFormNewDoc && (
+        <div className="modal-overlay">
+          <div className="modal-content">
+            <button
+              className="modal-close"
+              onClick={() => setShowFormNewDoc(false)}
+            >
+              ×
+            </button>
+            <h2>Registrar Doctor</h2>
+            <form onSubmit={handleAddDoctor}>
+              <div className="form-group">
+                <label htmlFor="id_doc">ID</label>
+                <input
+                  id="id_doc"
+                  name="id_doc"
+                  value={form.id_doc}
+                  onChange={handleChange}
+                  required
+                />
+              </div>
+              <div className="form-group">
+                <label>Nombre completo</label>
+                <input
+                  id="nombre_doc"
+                  name="nombre_doc"
+                  value={form.nombre_doc}
+                  onChange={handleChange}
+                  required
+                />
+              </div>
+              <div className="form-group">
+                <label htmlFor="contrasena_doc">Contraseña</label>
+                <input
+                  id="contrasena_doc"
+                  name="contrasena_doc"
+                  value={form.contrasena_doc}
+                  onChange={handleChange}
+                  required
+                />
+              </div>
+              {formError && <p className="error">{formError}</p>}
+              <button
+                className="btn-primary"
+                type="submit"
+                disabled={saving}
+              >
+                {saving ? 'Guardando…' : 'Guardar Doctor'}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
