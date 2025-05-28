@@ -99,7 +99,7 @@ export default function StudyView() {
       canvas.removeEventListener("mouseup", handleMouseUp);
       canvas.removeEventListener("mouseleave", handleMouseUp);
     };
-  }, [drawingPoints, draggingIndex]); // ✅ válido aquí
+  }, [drawingPoints, draggingIndex]); //  válido aquí
 
   // Cargar lista de imágenes DICOM
   useEffect(() => {
