@@ -19,11 +19,13 @@ function AdminView() {
   const [searchTerm, setSearchTerm] = useState('');
 
   // — Modal de registro de doctores —
-    const [form, setForm] = useState({ id_doc:'', nombre_doc:'', contrasena_doc:'' })
-    const [saving, setSaving] = useState(false)
-    const [formError, setFormError] = useState('')
+  const [form, setForm] = useState({ id_doc: '', nombre_doc: '', contrasena_doc: '' })
+  const [saving, setSaving] = useState(false)
+  const [formError, setFormError] = useState('')
 
   const menuOptions = ['Crear usuario', 'Borrar', 'Ver perfil', 'Salir'];
+
+  const regexId = /^[DA]\d{4}[A-Z]{4}$/; // Expresion regular para los identificadores de doctor y admin
 
   // Cargar todos los doctores al montar
 
@@ -45,30 +47,23 @@ function AdminView() {
     fetchAllDoctors()
   }, [])
 
-  const handleSearch = async () => {
-    if (!searchTerm.trim()) {
-      //fetchDoctors();
-      fetchAllDoctors();
-      return;
+  //Live search
+  useEffect(() => {
+    const term = searchTerm.trim();
+    if (!term) {
+      setDoctors(allDoctors);
     }
-
-    try {
+    else {
       // Si el valor ingresado es puro número, se busca por ID
-      if (/^\d+$/.test(searchTerm.trim())) {
-        const response = await axios.get(`http://localhost:5000/doctores/${searchTerm.trim()}`);
-        setRecords([response.data]); // Es un único resultado
-      } else {
-        // Si no es número, busca por nombre
-        const response = await axios.get(`http://localhost:5000/doctores/nombre/${searchTerm.trim()}`);
-        setRecords(response.data);
+      //if (/^\d+$/.test(term)) {
+      if (regexId.test(term)) {
+        setDoctors(allDoctors.filter(d => d.id.includes(term)));
+      } else {// Si no es número, busca por nombre
+        setDoctors(allDoctors.filter(d => d.nombre_doc.includes(term)));
       }
-    } catch (error) {
-      console.error('Error en búsqueda:', error);
-      alert('No se encontró ningún doctor con ese criterio');
     }
-  };
+  }, [searchTerm, allDoctors]);
 
-  
   // — Handlers del modal —
   const handleChange = e => {
     const { name, value } = e.target
@@ -78,7 +73,7 @@ function AdminView() {
 
   const handleAddDoctor = async e => {
     e.preventDefault()
-    const { id_doc, nombre_doc, contrasena_doc} = form;
+    const { id_doc, nombre_doc, contrasena_doc } = form;
     if (!id_doc || !nombre_doc || !contrasena_doc) {
       setFormError('Completa todos los campos');
       return;
@@ -97,7 +92,7 @@ function AdminView() {
       });
       await fetchAllDoctors();
       setShowFormNewDoc(false);
-      setForm({ id_doc:'', nombre_doc:'', contrasena_doc:''})
+      setForm({ id_doc: '', nombre_doc: '', contrasena_doc: '' })
     } catch (err) {
       setFormError(err.response?.data || 'Error al crear doctor')
     } finally {
@@ -124,26 +119,15 @@ function AdminView() {
       <div className="admin-container">
         <h1>Bienvenido, {username}</h1>
         <p>Aquí puedes gestionar a los usuarios doctores.</p>
-        <input
-          type="text"
-          placeholder="Escribe el ID o nombre de un usuario..."
-          value={searchTerm}
-          onChange={(e) => {
-            const value = e.target.value;
-            setSearchTerm(value);
-
-            if (value.trim() === '') {
-              //fetchDoctors(); // Si el campo está vacío, recarga todos los doctores automáticamente
-              fetchAllDoctors();
-            }
-          }}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              handleSearch();
-            }
-          }}
-        />
-
+        <div className='search-bar'>
+          <input
+            type="text"
+            placeholder="Escribe el ID o nombre de un usuario..."
+            value={searchTerm}
+            onChange={d => setSearchTerm(d.target.value)}
+          />
+          <button onClick={() => setSearchTerm('')}>X</button>
+        </div>
       </div>
 
       {loading && <p>Cargando doctores</p>}
