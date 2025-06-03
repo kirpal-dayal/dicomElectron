@@ -54,9 +54,8 @@ function AdminView() {
       setDoctors(allDoctors);
     }
     else {
-      // Si el valor ingresado es puro número, se busca por ID
-      //if (/^\d+$/.test(term)) {
-      if (regexId.test(term)) {
+      //if (/^\d+$/.test(term)) { // Si el valor ingresado es puro número, se busca por ID
+      if (regexId.test(term)) { //Si cumple con el criterio de un ID
         setDoctors(allDoctors.filter(d => d.id.includes(term)));
       } else {// Si no es número, busca por nombre
         setDoctors(allDoctors.filter(d => d.nombre_doc.includes(term)));
@@ -139,6 +138,7 @@ function AdminView() {
             <tr>
               <th>ID</th>
               <th>Nombre</th>
+              <th>Estado</th>
             </tr>
           </thead>
           <tbody>
@@ -146,6 +146,7 @@ function AdminView() {
               <tr key={d.id}>
                 <td>{d.id}</td>
                 <td>{d.nombre_doc}</td>
+                <td>{d.activo === 1 ? "Activo" : "No activo"}</td>
                 <td>
                   <button
                     className="btn-primary"
