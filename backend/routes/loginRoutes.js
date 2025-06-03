@@ -48,10 +48,12 @@ router.post('/login', (req, res) => {
   // — ADMIN —
   const adminQuery = `
     SELECT id_admin    AS id,
-          nombre_admin   AS username
+          nombre_admin   AS username,
+          activo
     FROM admin
     WHERE id_admin = ?
       AND contrasena_admin = AES_ENCRYPT(?, ?)
+      AND activo = 1
   `;
   db.query(adminQuery, [id, password, key], (err, adminResults) => {
     if (err) {
@@ -89,7 +91,7 @@ router.post('/login', (req, res) => {
         });
       }
 
-      console.log(' No se encontró ni admin ni doctor');
+      console.log(' No se encontró ni admin activo ni doctor');
       return res.status(401).send('Usuario o contraseña incorrectos');
     });
   });
