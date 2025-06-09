@@ -21,7 +21,11 @@ canvas overlay (overlayCanvasRef) no está sincronizado en tamaño real con el e
 Usar transform: scale() rompe las coordenadas relativas entre DICOM y el overlay canvas.
 no estás usando padding, border o margin en .fullscreen-viewer y .overlay-canvas. 
 Se borran los puntos con alt click
- */
+Las coordenadas automaticas del modelo vienen de back/segment.py
+Carga automáticamente los mask_{index}.json según la imagen actual.
+Dibuja los contornos en capas independientes y permite ocultarlas.
+Puedes editar, limpiar, navegar entre slices, y aplicar zoom correctamente.
+*/
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import axios from "axios";
@@ -44,14 +48,17 @@ export default function StudyView() {
 
   const [dicomList, setDicomList] = useState([]);
   const [selectedIndex, setSelectedIndex] = useState(null);
-  const [drawingPoints, setDrawingPoints] = useState([]);
+  const [layers, setLayers] = useState([]);
   const [scale, setScale] = useState(1);
   const [draggingIndex, setDraggingIndex] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [isPolygonClosed, setIsPolygonClosed] = useState(false); //nuevo estado para saber si la figura está cerrada
+  const [selectedLayerIndex, setSelectedLayerIndex] = useState(0); // index de la capa activa
   const [wasDragging, setWasDragging] = useState(false);
   const [pixelSpacing, setPixelSpacing] = useState(null);
+  const [originalContours, setOriginalContours] = useState([]); // Solo para mostrar las coordinadas originales del modelo, no se uso alch
+  const [editableContours, setEditableContours] = useState([]); // Editable por el usuario coordinadas copia
+  const [totalArea, setTotalArea] = useState(0);
 
 
   const fechaOriginal = decodeURIComponent(studyNumber);
@@ -97,10 +104,70 @@ export default function StudyView() {
     };
   }, [selectedIndex, dicomList, scale]);
 
+  useEffect(() => {
+    if (selectedIndex === null) return;
+  
+    const paddedIndex = String(selectedIndex).padStart(3, '0');
+  
+    const fetchContours = async () => {
+      try {
+        const response = await axios.get(`/api/segment/mask-json/${folder}/${paddedIndex}`);
+        const data = response.data;
+  
+        setOriginalContours(data);
+        const editableCopy = JSON.parse(JSON.stringify(data));
+        setEditableContours(editableCopy);
+        
+        setLayers([
+          {
+            name: "Automática",
+            points: data,
+            visible: true,
+            color: "lime",
+            closed: true
+          },
+          {
+            name: "Editable",
+            points: editableCopy,
+            visible: true,
+            color: "red",
+            closed: true // Si los contornos del modelo están cerrados, esta capa también
+          }
+        ]);
+        
+        setSelectedLayerIndex(1); // Selecciona la capa editable
+        console.log("[DEBUG] Contornos cargados y capas configuradas");
+      } catch (error) {
+        console.error("Error al cargar las máscaras:", error);
+        setLayers([
+          {
+            name: "Capa Manual",
+            points: [],
+            visible: true,
+            color: "red",
+            closed: false
+          }
+        ]);
+        setSelectedLayerIndex(0);
+      }
+    };
+  
+    fetchContours();
+  }, [folder, selectedIndex]);
+  
+  
+  
   // Redibuja líneas de overlay cada vez que cambian los puntos
   useLayoutEffect(() => {
     requestAnimationFrame(drawOverlayLines);
-  }, [drawingPoints, isPolygonClosed]);
+  }, [layers]);
+  useEffect(() => {
+    if (!layers[selectedLayerIndex]) return;
+  
+    const puntos = layers[selectedLayerIndex].points;
+    const area = calcularAreaTotal(puntos, pixelSpacing);
+    setTotalArea(area);
+  }, [layers, selectedLayerIndex, pixelSpacing]);
 
   // Maneja redibujo cuando se hace zoom o pan
   useEffect(() => {
@@ -111,73 +178,83 @@ export default function StudyView() {
     return () => cornerstone.events.removeEventListener(element, EVENTS.VIEWPORT_MODIFIED, handler);
   }, []);
 
-  // Dibuja líneas y vértices sobre canvas
-  const drawOverlayLines = () => {
-    const canvas = overlayRef.current;
-    const element = viewerRef.current;
-    if (!canvas || !element) return;
+// Dibuja líneas y vértices sobre canvas
+const drawOverlayLines = () => {
+  const canvas = overlayRef.current;
+  const element = viewerRef.current;
+  if (!canvas || !element) return;
+
+  const rect = element.getBoundingClientRect();
+  canvas.width = rect.width;
+  canvas.height = rect.height;
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  layers.forEach((layer, idx) => {
+    console.log(`[DEBUG] Dibujando capa ${idx} (${layer.name}) - visible: ${layer.visible}`);
+    if (!layer.visible || !layer.points || layer.points.length === 0) return;
   
-    const rect = element.getBoundingClientRect();
-    canvas.width = rect.width;
-    canvas.height = rect.height;
-    const ctx = canvas.getContext("2d");
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    //  Comprobamos si son múltiples contornos (lista de listas)
+    const isMultiContour = Array.isArray(layer.points[0]);
+    const allPolygons = isMultiContour ? layer.points : (layer.points.length ? [layer.points] : []);
+    // const allPolygons = isMultiContour ? layer.points : [layer.points];
   
-    const screenPoints = drawingPoints.map(p => cornerstone.pixelToCanvas(element, p));
-    if (screenPoints.length === 0) return;
+    allPolygons.forEach(polygon => {
+      const screenPoints = polygon.map((p, i) => {
+        const canvasPoint = cornerstone.pixelToCanvas(element, p);
+        if (
+          isNaN(canvasPoint.x) || isNaN(canvasPoint.y) ||
+          canvasPoint.x < 0 || canvasPoint.x > canvas.width ||
+          canvasPoint.y < 0 || canvasPoint.y > canvas.height
+        ) {
+          console.warn(`[DEBUG] Punto inválido o fuera de rango:`, {
+            index: i,
+            puntoOriginal: p,
+            puntoCanvas: canvasPoint
+          });
+        }
+        return canvasPoint;
+      });
+      
   
-    // Área sombreada si el polígono está cerrado
-    if (isPolygonClosed && screenPoints.length >= 3) {
+      if (layer.closed && screenPoints.length >= 3) {
+        ctx.beginPath();
+        ctx.moveTo(screenPoints[0].x, screenPoints[0].y);
+        for (let i = 1; i < screenPoints.length; i++) {
+          ctx.lineTo(screenPoints[i].x, screenPoints[i].y);
+        }
+        ctx.closePath();
+        ctx.fillStyle = "rgba(0,255,0,0.2)";
+        ctx.fill();
+      }
+  
       ctx.beginPath();
+      ctx.strokeStyle = layer.color;
+      ctx.lineWidth = 2;
       ctx.moveTo(screenPoints[0].x, screenPoints[0].y);
       for (let i = 1; i < screenPoints.length; i++) {
         ctx.lineTo(screenPoints[i].x, screenPoints[i].y);
       }
-      ctx.closePath();
-      ctx.fillStyle = "rgba(0, 255, 0, 0.42)"; // Verde con opacidad
-      ctx.fill();
-    }
+      if (layer.closed) ctx.lineTo(screenPoints[0].x, screenPoints[0].y);
+      ctx.stroke();
   
-    // Líneas del contorno
-    ctx.beginPath();
-    ctx.strokeStyle = "lime";
-    ctx.lineWidth = 2;
-    ctx.moveTo(screenPoints[0].x, screenPoints[0].y);
-    for (let i = 1; i < screenPoints.length; i++) {
-      ctx.lineTo(screenPoints[i].x, screenPoints[i].y);
-    }
-    if (isPolygonClosed && screenPoints.length > 2) {
-      ctx.lineTo(screenPoints[0].x, screenPoints[0].y);
-    }
-    ctx.stroke();
-  
-    // Puntos individuales
-    screenPoints.forEach(pt => {
-      ctx.beginPath();
-      ctx.arc(pt.x, pt.y, 5, 0, 2 * Math.PI);
-      ctx.fillStyle = "red";
-      ctx.fill();
+      screenPoints.forEach(pt => {
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, 5, 0, 2 * Math.PI);
+        ctx.fillStyle = "red";
+        ctx.fill();
+      });
     });
+  });
+  // ctx.beginPath();
+  // ctx.arc(100, 100, 10, 0, 2 * Math.PI);
+  // ctx.fillStyle = "yellow";
+  // ctx.fill();
+  console.log("[DEBUG] Capas actuales:", layers);
+
+};
   
-    // Área como texto si el polígono está cerrado
-    if (isPolygonClosed && drawingPoints.length >= 3) {
-      const areaMm2 = calculatePolygonAreaMm(drawingPoints, pixelSpacing);
-      const center = screenPoints.reduce((acc, pt) => ({
-        x: acc.x + pt.x,
-        y: acc.y + pt.y,
-      }), { x: 0, y: 0 });
-      center.x /= screenPoints.length;
-      center.y /= screenPoints.length;
-  
-      ctx.fillStyle = "white";
-      ctx.font = "16px sans-serif";
-      ctx.fillText(
-        areaMm2 ? `Área: ${areaMm2.toFixed(2)} mm²` : "Área: -",
-        center.x + 10,
-        center.y
-      );
-    }
-  };  
+
   function calculatePolygonAreaMm(points, pixelSpacing) {
     let area = 0;
     for (let i = 0; i < points.length; i++) {
@@ -207,136 +284,153 @@ export default function StudyView() {
     return Math.hypot(p.x - closest.x, p.y - closest.y);
   }
   // Calcula el área de un polígono dado sus puntos
-  function calculatePolygonArea(points) {
-    let area = 0;
-    for (let i = 0; i < points.length; i++) {
-      const j = (i + 1) % points.length;
-      area += (points[i].x * points[j].y) - (points[j].x * points[i].y);
-    }
-    return Math.abs(area / 2);
-  }
-  const handleOverlayClick = (e) => {
-    const element = viewerRef.current;
-    const canvas = overlayRef.current;
-    if (wasDragging || !element || !canvas) return;
+  function calcularAreaTotal(polygons, pixelSpacing) {
+    let total = 0;
   
-    const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    const imagePoint = cornerstone.canvasToPixel(element, { x, y });
+    const all = Array.isArray(polygons[0]) ? polygons : [polygons];
   
-    const screenPoints = drawingPoints.map(p => cornerstone.pixelToCanvas(element, p));
-    const clickPoint = { x, y };
-  
-    // ✅ ELIMINAR punto si presiona Alt (o e.shiftKey si prefieres)
-    if (e.altKey) {
-      const removeThreshold = 6; // px
-      const indexToRemove = screenPoints.findIndex(pt =>
-        Math.hypot(pt.x - x, pt.y - y) < removeThreshold
-      );
-      if (indexToRemove !== -1) {
-        const updated = [...drawingPoints];
-        updated.splice(indexToRemove, 1);
-        setDrawingPoints(updated);
-        return;
+    all.forEach(polygon => {
+      if (polygon.length >= 3) {
+        total += calculatePolygonAreaMm(polygon, pixelSpacing) || 0;
       }
-    }
+    });
   
-    // 🔁 Inserta puntos si el polígono ya está cerrado
-    if (isPolygonClosed) {
-      const insertThreshold = 6;
-      for (let i = 0; i < screenPoints.length - 1; i++) {
-        const a = screenPoints[i];
-        const b = screenPoints[i + 1];
-        const dist = pointToSegmentDistance(clickPoint, a, b);
-        if (dist < insertThreshold) {
-          const newDrawingPoints = [...drawingPoints];
-          newDrawingPoints.splice(i + 1, 0, imagePoint);
-          setDrawingPoints(newDrawingPoints);
-          return;
+    return total;
+  }
+  
+
+// aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+const handleOverlayClick = (e) => {
+  if (!layers[selectedLayerIndex]) return;
+  const element = viewerRef.current;
+  const canvas = overlayRef.current;
+  if (!element || !canvas || wasDragging) return;
+
+  const rect = canvas.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  const y = e.clientY - rect.top;
+  const imagePoint = cornerstone.canvasToPixel(element, { x, y });
+
+  setLayers(prev => {
+    const updated = [...prev];
+    const layer = { ...updated[selectedLayerIndex] };
+    const isMulti = Array.isArray(layer.points[0]);
+    const polygons = isMulti ? layer.points : [layer.points];
+
+    for (let pIdx = 0; pIdx < polygons.length; pIdx++) {
+      const polygon = polygons[pIdx];
+      const screenPoints = polygon.map(p => cornerstone.pixelToCanvas(element, p));
+
+      // Alt-click para eliminar punto
+      if (e.altKey) {
+        const idx = screenPoints.findIndex(pt => Math.hypot(pt.x - x, pt.y - y) < 6);
+        if (idx !== -1) {
+          polygon.splice(idx, 1);
+          updated[selectedLayerIndex].points = isMulti ? [...polygons] : [...polygon];
+          return updated;
         }
       }
-  
-      const a = screenPoints[screenPoints.length - 1];
-      const b = screenPoints[0];
-      const dist = pointToSegmentDistance(clickPoint, a, b);
-      if (dist < insertThreshold) {
-        const newDrawingPoints = [...drawingPoints, imagePoint];
-        setDrawingPoints(newDrawingPoints);
+
+      // Click cerca del borde para insertar punto
+      if (layer.closed) {
+        const insertThreshold = 6;
+        for (let i = 0; i < screenPoints.length; i++) {
+          const a = screenPoints[i];
+          const b = screenPoints[(i + 1) % screenPoints.length];
+          const dist = pointToSegmentDistance({ x, y }, a, b);
+          if (dist < insertThreshold) {
+            polygon.splice(i + 1, 0, imagePoint);
+            updated[selectedLayerIndex].points = isMulti ? [...polygons] : [...polygon];
+            return updated;
+          }
+        }
+      } else {
+        // Cierre automático si clic cerca del primero
+        if (polygon.length >= 3) {
+          const first = polygon[0];
+          if (Math.hypot(imagePoint.x - first.x, imagePoint.y - first.y) < 6) {
+            layer.closed = true;
+            updated[selectedLayerIndex] = layer;
+            return updated;
+          }
+        }
+
+        const tooClose = screenPoints.some(pt => Math.hypot(pt.x - x, pt.y - y) < 6);
+        if (!tooClose) {
+          polygon.push(imagePoint);
+          updated[selectedLayerIndex].points = isMulti ? [...polygons] : [...polygon];
+          return updated;
+        }
       }
-  
-      return;
     }
-  
-    // ➕ Agrega nuevo punto si no está cerca de otro
-    if (drawingPoints.length > 2) {
-      const first = drawingPoints[0];
-      const distToFirst = Math.hypot(imagePoint.x - first.x, imagePoint.y - first.y);
-      if (distToFirst < 6) {
-        setIsPolygonClosed(true);
-        requestAnimationFrame(() => drawOverlayLines());
-        return;
-      }
-    }
-  
-    const last = drawingPoints[drawingPoints.length - 1];
-    if (last && Math.hypot(imagePoint.x - last.x, imagePoint.y - last.y) < 2) return;
-  
-    const threshold = 6;
-    const tooCloseToExisting = screenPoints.some(pt =>
-      Math.hypot(pt.x - clickPoint.x, pt.y - clickPoint.y) < threshold
-    );
-    if (tooCloseToExisting) return;
-  
-    setDrawingPoints([...drawingPoints, imagePoint]);
-  };
-  
+
+    return updated;
+  });
+};
+
 
   // Soporte para arrastrar vértices
   useEffect(() => {
     const canvas = overlayRef.current;
     const element = viewerRef.current;
     if (!canvas || !element) return;
-
+  
     const onMouseDown = (e) => {
-      setWasDragging(false); // inicia sin drag para que no se considere un arrastre al hacer clic
+      setWasDragging(false);
+      if (!layers[selectedLayerIndex]) return;
       const { x, y } = getMouseCoords(canvas, e);
-      drawingPoints.forEach((p, i) => {
-        const screen = cornerstone.pixelToCanvas(element, p);
-        if (Math.hypot(screen.x - x, screen.y - y) < 6) {
-          setDraggingIndex(i);
-        }
-      });
+      const layer = layers[selectedLayerIndex];
+      const isMulti = Array.isArray(layer.points[0]);
+      const polygons = isMulti ? layer.points : [layer.points];
+      
+      for (let pIdx = 0; pIdx < polygons.length; pIdx++) {
+        const screenPoints = polygons[pIdx].map(p => cornerstone.pixelToCanvas(element, p));
+        screenPoints.forEach((pt, i) => {
+          if (Math.hypot(pt.x - x, pt.y - y) < 6) {
+            setDraggingIndex({ pIdx, i }); // guarda qué punto en qué polígono
+          }
+        });
+      }
     };
+  
     const onMouseMove = (e) => {
       if (draggingIndex === null) return;
-      setWasDragging(true);
       const { x, y } = getMouseCoords(canvas, e);
       const imageCoords = cornerstone.canvasToPixel(element, { x, y });
-    
-      setDrawingPoints(prev => {
-        const copy = [...prev];
-        copy[draggingIndex] = imageCoords;
-        return copy;
+      
+      setLayers(prev => {
+        const updated = [...prev];
+        const layer = { ...updated[selectedLayerIndex] };
+        const isMulti = Array.isArray(layer.points[0]);
+        const polygons = isMulti ? [...layer.points] : [ [...layer.points] ];
+      
+        if (draggingIndex) {
+          polygons[draggingIndex.pIdx][draggingIndex.i] = imageCoords;
+        }
+      
+        layer.points = isMulti ? polygons : polygons[0];
+        updated[selectedLayerIndex] = layer;
+        return updated;
       });
-    
+      
+  
       drawOverlayLines();
-    };    
-
+    };
+  
     const stopDragging = () => setDraggingIndex(null);
-
+  
     canvas.addEventListener("mousedown", onMouseDown);
     canvas.addEventListener("mousemove", onMouseMove);
     canvas.addEventListener("mouseup", stopDragging);
     canvas.addEventListener("mouseleave", stopDragging);
-
     return () => {
       canvas.removeEventListener("mousedown", onMouseDown);
       canvas.removeEventListener("mousemove", onMouseMove);
       canvas.removeEventListener("mouseup", stopDragging);
       canvas.removeEventListener("mouseleave", stopDragging);
     };
-  }, [drawingPoints, draggingIndex]);
+  }, [layers, selectedLayerIndex, draggingIndex]);
+  
 
   const getMouseCoords = (canvas, e) => {
     const rect = canvas.getBoundingClientRect();
@@ -358,15 +452,19 @@ export default function StudyView() {
   // UI rendering
   if (loading) return <p style={{ padding: "2rem" }}>Cargando estudio…</p>;
   if (error) return <p style={{ padding: "2rem", color: "red" }}>{error}</p>;
-
+  
   return (
     <div style={{ padding: "2rem" }}>
       <h2>Estudio - {fechaOriginal}</h2>
       <button onClick={() => navigate(-1)}>← Volver</button>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, 150px)", gap: "1rem", marginTop: "2rem" }}>
-        {dicomList.map((url, i) => (
-          <div key={i} className="thumb" onClick={() => setSelectedIndex(i)} ref={async el => {
+      {dicomList.map((url, i) => (
+        <div
+          key={i}
+          className="thumb"
+          onClick={() => setSelectedIndex(i)}
+          ref={async (el) => {
             if (el) {
               try {
                 cornerstone.enable(el);
@@ -374,8 +472,15 @@ export default function StudyView() {
                 cornerstone.displayImage(el, image);
               } catch {}
             }
-          }} style={{ background: "black", borderRadius: "8px", height: "150px" }} />
-        ))}
+          }}
+          style={{
+            background: "black",
+            borderRadius: "8px",
+            height: "150px"
+          }}
+        />
+      ))}
+
       </div>
       <style>{`
   .fullscreen-overlay {
@@ -449,11 +554,24 @@ export default function StudyView() {
       <span style={{ color: "#fff" }}>{selectedIndex + 1} / {dicomList.length}</span>
       <div>
       <button className="btn" onClick={() => {
-  setDrawingPoints([]);
-  setIsPolygonClosed(false);
+    setLayers(prev => {
+    const updated = [...prev];
+    updated[selectedLayerIndex] = {
+      ...updated[selectedLayerIndex],
+      points: [],
+      closed: false
+    };
+
+    return updated;
+  });
 }}>
+<div style={{ color: "#fff", fontWeight: "bold" }}>
+  Área total: {totalArea.toFixed(2)} mm²
+</div>
+
   Limpiar
 </button>
+
         <button className="btn" onClick={() => setSelectedIndex(null)}>Cerrar</button>
       </div>
     </div>
@@ -462,6 +580,11 @@ export default function StudyView() {
       <div ref={viewerRef} className="fullscreen-viewer" />
       <canvas ref={overlayRef} className="overlay-canvas" onClick={handleOverlayClick} />
     </div>
+    <div>
+  <p style={{ color: "#fff" }}>Capas:</p>
+
+</div>
+
 
     <div className="fullscreen-controls">
       <label style={{ color: "#fff" }}>Zoom:</label>
@@ -474,15 +597,37 @@ export default function StudyView() {
         onChange={handleZoomChange}
       />
       <div>
-        <button className="btn" onClick={() => setSelectedIndex(i => Math.max(0, i - 1))} disabled={selectedIndex === 0}>
-          Anterior
-        </button>
-        <button className="btn" onClick={() => setSelectedIndex(i => Math.min(dicomList.length - 1, i + 1))} disabled={selectedIndex === dicomList.length - 1}>
-          Siguiente
-        </button>
+      <button className="btn" onClick={() => setSelectedIndex(prev => Math.max(0, prev - 1))} disabled={selectedIndex === 0}>
+  Anterior
+</button>
+
+        <button className="btn" onClick={() => setSelectedIndex(prev => Math.min(dicomList.length - 1, prev + 1))} disabled={selectedIndex === dicomList.length - 1}>
+  Siguiente
+</button>
+
       </div>
     </div>
+  {layers.length > 0 && (
+  <div>
+    <p style={{ color: "#fff" }}>Capas:</p>
+    {layers.map((layer, i) => (
+      <label key={i} style={{ color: "#fff", marginRight: "1rem" }}>
+        <input
+          type="checkbox"
+          checked={layer.visible}
+          onChange={() => {
+            const updated = [...layers];
+            updated[i].visible = !updated[i].visible;
+            setLayers(updated);
+          }}
+        />
+        {layer.name}
+      </label>
+    ))}
   </div>
+)}
+  </div>
+  
 )}
     </div>
   );
