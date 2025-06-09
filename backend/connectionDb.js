@@ -6,8 +6,8 @@ const mysql = require('mysql2');
 const db = mysql.createConnection({
   host: 'localhost',
   user: 'root',
-  password: '1234',
-  database: 'fibrosis_v05'
+  password: '12345678',
+  database: 'fibrosis_v06'
 });
 
 // Conectar a la base de datos
