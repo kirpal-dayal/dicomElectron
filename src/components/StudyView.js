@@ -113,29 +113,26 @@ export default function StudyView() {
       try {
         const response = await axios.get(`/api/segment/mask-json/${folder}/${paddedIndex}`);
         const data = response.data;
-  
-        setOriginalContours(data);
-        const editableCopy = JSON.parse(JSON.stringify(data));
-        setEditableContours(editableCopy);
+        const layersFromJson = Object.entries(data).map(([key, polygons]) => ({
+          name: `Modelo - ${key}`,
+          points: polygons,
+          visible: true,
+          color: key === "fibrosis" ? "red" : "lime",
+          closed: true
+        }));
         
-        setLayers([
-          {
-            name: "Automática",
-            points: data,
-            visible: true,
-            color: "lime",
-            closed: true
-          },
-          {
-            name: "Editable",
-            points: editableCopy,
-            visible: true,
-            color: "red",
-            closed: true // Si los contornos del modelo están cerrados, esta capa también
-          }
-        ]);
+        // Capa editable vacía (por si el usuario quiere crear una nueva)
+        const editableLayer = {
+          name: "Editable",
+          points: [],
+          visible: true,
+          color: "yellow",
+          closed: false
+        };
         
-        setSelectedLayerIndex(1); // Selecciona la capa editable
+        setLayers([...layersFromJson, editableLayer]);
+        setSelectedLayerIndex(layersFromJson.length); // editable es la última        
+        
         console.log("[DEBUG] Contornos cargados y capas configuradas");
       } catch (error) {
         console.error("Error al cargar las máscaras:", error);

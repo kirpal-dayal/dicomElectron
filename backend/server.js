@@ -61,7 +61,7 @@ if (fs.existsSync(routesDir)) {
         console.log('  Ruta /api/image montada');
         console.log('Rutas de imágenes montadas');
       } else if (file === "segmentRoutes.js") {
-        app.use('/api/segment', route); // ✅ así se monta como /api/segment/...
+        app.use('/api/segment', route); // así se monta como /api/segment/...
         console.log('  Ruta /api/segment montada');
       } else {
         app.use('/api', route);
