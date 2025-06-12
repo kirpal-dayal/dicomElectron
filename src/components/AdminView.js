@@ -99,6 +99,17 @@ function AdminView() {
     }
   }
 
+  const changeDocStatus = async (id_doc) => {
+    try {
+      console.log('Cambiando estado del doctor con ID:', id_doc);
+      await axios.patch(`http://localhost:5000/doctores/${id_doc}`);
+      await fetchAllDoctors();
+    }
+    catch (err) {
+      console.error('Error al cambiar el estado del doctor:', err)
+    }
+  }
+
   return (
     <div>
       {/*<NavBar
@@ -148,6 +159,11 @@ function AdminView() {
                 <td>{d.nombre_doc}</td>
                 <td>{d.activo === 1 ? "Activo" : "No activo"}</td>
                 <td>
+                  <button
+                    className="btn-primary"
+                    onClick={() => changeDocStatus(d.id)}>
+                    Cambiar estado
+                  </button>
                   <button
                     className="btn-primary"
                     onClick={() => handleViewDoctor(d.id)}

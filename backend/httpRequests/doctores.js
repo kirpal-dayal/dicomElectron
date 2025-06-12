@@ -40,7 +40,7 @@ module.exports = (app) => {
       * NOTA: deben de coincidir las claves del json con los nombres de las siguiente constantes
      */
     const { id, nombre, contrasena, idAdminCreador } = req.body;
-    
+
     // Validar que se reciban todos los campos necesarios
     if (!id || !nombre || !contrasena || !idAdminCreador) {
       return res.status(400).send('Faltan datos requeridos');
@@ -91,7 +91,7 @@ module.exports = (app) => {
   // Buscar un doctor por nombre
   app.get(`${ENDPOINT}/nombre/:nombre`, (req, res) => {
     const { nombre } = req.params; // Extraer el parámetro de la URL
-    if(!nombre){
+    if (!nombre) {
       return res.status(400).send('Falta el nombre del doctor');
     }
     const query = 'SELECT * FROM doctor WHERE nombre_doc LIKE ?';
@@ -104,6 +104,37 @@ module.exports = (app) => {
         return res.status(404).send('No se encontraron doctores con ese nombre');
       }
       res.json(results); // Devolver todos los doctores que coincidan
+    });
+  });
+
+  // Cambiar el estado de un doctor (activo1, inactivo0) (Borrado lógico)
+  app.patch(`${ENDPOINT}/:id`, (req, res) => {
+    const { id } = req.params;
+    if (!id) {
+      return res.status(400).send('Falta el ID del doctor');
+    }
+
+    // 1. Obtener el estado actual
+    db.query('SELECT activo FROM doctor WHERE id = ?', [id], (err, results) => {
+      if (err) {
+        console.error(err);
+        return res.status(500).send('Error al consultar el estado actual');
+      }
+      if (results.length === 0) {
+        return res.status(404).send('Doctor no encontrado');
+      }
+
+      const estadoActual = results[0].activo;
+      const nuevoEstado = estadoActual === 1 ? 0 : 1;
+
+      // 2. Actualizar el estado
+      db.query('UPDATE doctor SET activo = ? WHERE id = ?', [nuevoEstado, id], (err2) => {
+        if (err2) {
+          console.error(err2);
+          return res.status(500).send('Error al actualizar el estado');
+        }
+        res.json({ id, nuevoEstado });
+      });
     });
   });
 };

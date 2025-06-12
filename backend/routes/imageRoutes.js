@@ -34,7 +34,7 @@ const path     = require('path');
 const unzipper = require('unzipper');
 const db       = require('../connectionDb');
 const { nameDirectoryDicom } = require('../configConst');
-
+const { exec } = require('child_process'); // Para ejecutar scripts Python 
 const router = express.Router();
 
 /**
@@ -93,28 +93,45 @@ router.post('/upload-zip', async (req, res) => {
         (err) => err ? reject(err) : resolve()
       );
     });
+// Leer y almacenar DICOMs en la BD
+const dicomFiles = findDicomFiles(studyDir);
+for (let i = 0; i < dicomFiles.length; i++) {
+  const relativePath = dicomFiles[i];
+  const fullPath = path.join(studyDir, relativePath);
+  const buffer = fs.readFileSync(fullPath);
+  await new Promise((resolve, reject) => {
+    db.query(
+      'INSERT INTO imagen (nss_exp, fecha_estudio, num_tomo, imagen) VALUES (?, ?, ?, ?)',
+      [nss, fecha, i + 1, buffer],
+      (err) => err ? reject(err) : resolve()
+    );
+  });
+}
 
-    // Leer y almacenar DICOMs en la BD
-    const dicomFiles = findDicomFiles(studyDir);
-    for (let i = 0; i < dicomFiles.length; i++) {
-      const relativePath = dicomFiles[i];
-      const fullPath = path.join(studyDir, relativePath);
-      const buffer = fs.readFileSync(fullPath);
-      await new Promise((resolve, reject) => {
-        db.query(
-          'INSERT INTO imagen (nss_exp, fecha_estudio, num_tomo, imagen) VALUES (?, ?, ?, ?)',
-          [nss, fecha, i + 1, buffer],
-          (err) => err ? reject(err) : resolve()
-        );
-      });
-    }
+//   EJECUTAR SEGMENTACIÓN AUTOMÁTICAMENTE (DENTRO DEL TRY)
+const segmentationScript = path.join(__dirname, '../segmentation/main.py');
+const command = `python "${segmentationScript}" "${studyDir}"`;
 
-    res.json({ success: true, message: `Subida exitosa. ${dicomFiles.length} imágenes registradas.` });
+exec(command, (error, stdout, stderr) => {
+  if (error) {
+    console.error(' Error al ejecutar la segmentación:', error);
+    console.error('stderr:', stderr);
+  } else {
+    console.log('Segmentación completada automáticamente.');
+    console.log('stdout:', stdout);
+  }
+});
+
+    //  Enviar respuesta al cliente
+    res.json({
+      success: true,
+      message: `Subida exitosa. ${dicomFiles.length} imágenes registradas y segmentación lanzada.`,
+    });
   } catch (err) {
     console.error('Error en subida ZIP:', err);
     res.status(500).send('Error al procesar ZIP');
   }
-});
+}); // ← CIERRE del router.post CORRECTO
 
 /**
  * GET /dicom-list/:folder
