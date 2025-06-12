@@ -1,0 +1,120 @@
+
+import numpy as np
+import glob
+from tifffile import imwrite
+import pydicom as pd
+import cv2
+import segmentation_models as sm
+import os
+import json
+from skimage import measure
+from keras.models import load_model
+from skimage.measure import approximate_polygon
+
+def test_U_net_estimation(X_test, n_classes):
+    BACKBONE = 'vgg16'
+    preprocess_input = sm.get_preprocessing(BACKBONE)
+    model_path = os.path.join(os.path.dirname(__file__), "best_result.hdf5")
+    model = load_model(model_path, compile=False)
+    X_test1 = preprocess_input(X_test)
+    y_pred = model.predict(X_test1)
+    y_pred_argmax = np.argmax(y_pred, axis=3)
+    return y_pred_argmax
+
+def dicom_segmentation(path_original, size, n_clases):
+    SIZE_X, SIZE_Y = size
+    arr_original = []
+    ds = None
+    img_size = None
+
+    for directory_path in glob.glob(path_original):
+        for img_path in glob.glob(os.path.join(directory_path, '*')):
+            if not os.path.isfile(img_path):
+                continue
+            try:
+                ds = pd.dcmread(img_path)
+            except:
+                continue
+
+            img = ds.pixel_array
+            img_size = img.shape
+            rescale_intercept = int(ds.RescaleIntercept)
+            img = img + rescale_intercept
+            img = np.clip(img, -1000, 250)
+            img = img + 1000
+            img = img.astype(np.uint16)
+            img_resized = cv2.resize(img, [SIZE_X, SIZE_Y])
+            arr_original.append(img_resized)
+
+    if len(arr_original) == 0:
+        raise ValueError(f"No se encontraron imágenes DICOM en: {path_original}")
+
+    arr_original = np.array(arr_original)
+    pixel_relation = img_size[0] / SIZE_X
+    pixelen = ds.PixelSpacing[0] * pixel_relation
+    pixelarea = pixelen * pixelen
+    slice_thickness = float(ds.SpacingBetweenSlices) if "SpacingBetweenSlices" in ds else 10
+
+    arr_color = np.array([cv2.cvtColor(img, cv2.COLOR_GRAY2BGR) for img in arr_original])
+    mask_pred = test_U_net_estimation(arr_color, n_clases)
+    output_dir = os.path.join(path_original, "segmentaciones_por_dicom")
+    os.makedirs(output_dir, exist_ok=True)
+
+    lung_pixels_pred = []
+    fibrosis_pixels_pred = []
+
+    for idx, (each_mask, original_img) in enumerate(zip(mask_pred, arr_original)):
+        mask_lung = np.where((each_mask == 1) | (each_mask == 2), 1, 0).astype(np.uint8)
+        mask_fibrosis = np.where(each_mask == 2, 1, 0).astype(np.uint8)
+
+        contours_lung = measure.find_contours(mask_lung.astype(float), level=0.5)
+        contours_fibrosis = measure.find_contours(mask_fibrosis.astype(float), level=0.5)
+
+        scale_x = img_size[1] / SIZE_X
+        scale_y = img_size[0] / SIZE_Y
+
+        json_lung = []
+        for contour in contours_lung:
+            simplified = approximate_polygon(contour, tolerance=1.5)
+            if len(simplified) >= 3:
+                scaled = [{"x": float(p[1] * scale_x), "y": float(p[0] * scale_y)} for p in simplified]
+                json_lung.append(scaled)
+
+        json_fibrosis = []
+        for contour in contours_fibrosis:
+            simplified = approximate_polygon(contour, tolerance=1.5)
+            if len(simplified) >= 3:
+                scaled = [{"x": float(p[1] * scale_x), "y": float(p[0] * scale_y)} for p in simplified]
+                json_fibrosis.append(scaled)
+
+        json_data = {
+            "lung": json_lung,
+            "fibrosis": json_fibrosis
+        }
+
+        with open(os.path.join(output_dir, f"mask_{idx:03d}.json"), 'w') as f:
+            json.dump(json_data, f, indent=2)
+
+        lung_pixels_pred.append(np.sum(mask_lung))
+        fibrosis_pixels_pred.append(np.sum(mask_fibrosis))
+
+    lung_area_pred = np.array(lung_pixels_pred) * pixelarea
+    fibrosis_area_pred = np.array(fibrosis_pixels_pred) * pixelarea
+    lung_volume = np.sum(lung_area_pred) * slice_thickness / 1000
+    fibrosis_volume = np.sum(fibrosis_area_pred) * slice_thickness / 1000
+
+    print(f"Volumen de pulmón: {lung_volume:.2f} ml")
+    print(f"Volumen de fibrosis: {fibrosis_volume:.2f} ml")
+    print(f"Volumen total: {lung_volume + fibrosis_volume:.2f} ml")
+
+    imwrite(os.path.join(output_dir, "ct_original.tif"),
+            arr_original.astype(np.uint16),
+            imagej=True,
+            resolution=(1 / pixelarea, 1 / pixelarea),
+            metadata={'spacing': slice_thickness, 'unit': 'mm', 'axes': 'ZYX'})
+
+    imwrite(os.path.join(output_dir, "mascaras_pred.tif"),
+            mask_pred.astype(np.uint16),
+            imagej=True,
+            resolution=(1 / pixelarea, 1 / pixelarea),
+            metadata={'spacing': slice_thickness, 'unit': 'mm', 'axes': 'ZYX'})
