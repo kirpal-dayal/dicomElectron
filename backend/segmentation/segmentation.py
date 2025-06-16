@@ -9,7 +9,7 @@ import os
 import json
 from skimage import measure
 from keras.models import load_model
-from skimage.measure import approximate_polygon
+# from skimage.measure import approximate_polygon # esto era para simplificar los contornos, pero no se usa en el código actual, queda residuos del código anterior que se deben quitar
 
 def test_U_net_estimation(X_test, n_classes):
     BACKBONE = 'vgg16'
@@ -27,24 +27,24 @@ def dicom_segmentation(path_original, size, n_clases):
     ds = None
     img_size = None
 
-    for directory_path in glob.glob(path_original):
-        for img_path in glob.glob(os.path.join(directory_path, '*')):
-            if not os.path.isfile(img_path):
-                continue
-            try:
-                ds = pd.dcmread(img_path)
-            except:
-                continue
+    directory_path = path_original  # ✅ Usamos directamente el path recibido
+    for img_path in glob.glob(os.path.join(directory_path, '*')):
+        if not os.path.isfile(img_path):
+            continue
+        try:
+            ds = pd.dcmread(img_path)
+        except:
+            continue
 
-            img = ds.pixel_array
-            img_size = img.shape
-            rescale_intercept = int(ds.RescaleIntercept)
-            img = img + rescale_intercept
-            img = np.clip(img, -1000, 250)
-            img = img + 1000
-            img = img.astype(np.uint16)
-            img_resized = cv2.resize(img, [SIZE_X, SIZE_Y])
-            arr_original.append(img_resized)
+        img = ds.pixel_array
+        img_size = img.shape
+        rescale_intercept = int(ds.RescaleIntercept)
+        img = img + rescale_intercept
+        img = np.clip(img, -1000, 250)
+        img = img + 1000
+        img = img.astype(np.uint16)
+        img_resized = cv2.resize(img, [SIZE_X, SIZE_Y])
+        arr_original.append(img_resized)
 
     if len(arr_original) == 0:
         raise ValueError(f"No se encontraron imágenes DICOM en: {path_original}")
@@ -75,18 +75,16 @@ def dicom_segmentation(path_original, size, n_clases):
 
         json_lung = []
         for contour in contours_lung:
-            simplified = approximate_polygon(contour, tolerance=1.5)
-            if len(simplified) >= 3:
-                scaled = [{"x": float(p[1] * scale_x), "y": float(p[0] * scale_y)} for p in simplified]
+            if len(contour) >= 3:
+                scaled = [{"x": float(p[1] * scale_x), "y": float(p[0] * scale_y)} for p in contour]
                 json_lung.append(scaled)
 
         json_fibrosis = []
         for contour in contours_fibrosis:
-            simplified = approximate_polygon(contour, tolerance=1.5)
-            if len(simplified) >= 3:
-                scaled = [{"x": float(p[1] * scale_x), "y": float(p[0] * scale_y)} for p in simplified]
+            if len(contour) >= 3:
+                scaled = [{"x": float(p[1] * scale_x), "y": float(p[0] * scale_y)} for p in contour]
                 json_fibrosis.append(scaled)
-
+            
         json_data = {
             "lung": json_lung,
             "fibrosis": json_fibrosis

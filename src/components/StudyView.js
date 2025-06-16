@@ -25,6 +25,8 @@ Las coordenadas automaticas del modelo vienen de back/segment.py
 Carga automáticamente los mask_{index}.json según la imagen actual.
 Dibuja los contornos en capas independientes y permite ocultarlas.
 Puedes editar, limpiar, navegar entre slices, y aplicar zoom correctamente.
+
+npm install simplify-js 
 */
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
@@ -33,6 +35,8 @@ import * as cornerstone from "cornerstone-core";
 import * as cornerstoneWADOImageLoader from "cornerstone-wado-image-loader";
 import * as dicomParser from "dicom-parser";
 import { EVENTS } from "cornerstone-core";
+
+import simplify from "simplify-js"; // Para simplificar polígonos ahora en el front de la copia
 
 // Configuración global para Cornerstone
 cornerstoneWADOImageLoader.external.cornerstone = cornerstone;
@@ -60,10 +64,12 @@ export default function StudyView() {
   const [editableContours, setEditableContours] = useState([]); // Editable por el usuario coordinadas copia
   const [totalArea, setTotalArea] = useState(0);
 
-
   const fechaOriginal = decodeURIComponent(studyNumber);
   const safeFecha = fechaOriginal.replace(/[:\. ]/g, "_");
   const folder = `${nss}_${safeFecha}`;
+
+  const [isPanning, setIsPanning] = useState(false);
+  const [lastPanPosition, setLastPanPosition] = useState(null);
 
   // Cargar lista de archivos DICOM desde backend
   useEffect(() => {
@@ -113,42 +119,77 @@ export default function StudyView() {
       try {
         const response = await axios.get(`/api/segment/mask-json/${folder}/${paddedIndex}`);
         const data = response.data;
-        const layersFromJson = Object.entries(data).map(([key, polygons]) => ({
-          name: `Modelo - ${key}`,
-          points: polygons,
-          visible: true,
-          color: key === "fibrosis" ? "red" : "lime",
-          closed: true
-        }));
-        
-        // Capa editable vacía (por si el usuario quiere crear una nueva)
-        const editableLayer = {
-          name: "Editable",
-          points: [],
-          visible: true,
-          color: "yellow",
-          closed: false
-        };
-        
-        setLayers([...layersFromJson, editableLayer]);
-        setSelectedLayerIndex(layersFromJson.length); // editable es la última        
-        
-        console.log("[DEBUG] Contornos cargados y capas configuradas");
-      } catch (error) {
-        console.error("Error al cargar las máscaras:", error);
-        setLayers([
+    
+        const lungOriginal = data.lung || [];
+        const fibrosisOriginal = data.fibrosis || [];
+    
+        const lungEditable = JSON.parse(JSON.stringify(lungOriginal));     // Copia profunda
+        const fibrosisEditable = JSON.parse(JSON.stringify(fibrosisOriginal));
+    
+        const layersConfig = [
           {
-            name: "Capa Manual",
-            points: [],
+            name: "Pulmón (modelo)",
+            points: lungOriginal,
+            visible: true,
+            color: "lime",
+            closed: true,
+            editable: false,
+          },
+          {
+            name: "Pulmón (editable)",
+            points: lungEditable,
+            visible: true,
+            color: "yellow",
+            closed: true,
+            editable: true,
+          },
+          {
+            name: "Fibrosis (modelo)",
+            points: fibrosisOriginal,
             visible: true,
             color: "red",
-            closed: false
+            closed: true,
+            editable: false,
+          },
+          {
+            name: "Fibrosis (editable)",
+            points: fibrosisEditable,
+            visible: true,
+            color: "orange",
+            closed: true,
+            editable: true,
+          }
+        ];
+    
+        setLayers(layersConfig);
+        setSelectedLayerIndex(1); // Seleccionamos "Pulmón (editable)" por defecto
+        console.log("[DEBUG] Capas de modelo + editables cargadas");
+    
+      } catch (error) {
+        console.error("Error al cargar las máscaras:", error);
+        // Si no hay máscaras disponibles, crear capas vacías
+        setLayers([
+          {
+            name: "Pulmón (editable)",
+            points: [],
+            visible: true,
+            color: "yellow",
+            closed: false,
+            editable: true
+          },
+          {
+            name: "Fibrosis (editable)",
+            points: [],
+            visible: true,
+            color: "orange",
+            closed: false,
+            editable: true
           }
         ]);
         setSelectedLayerIndex(0);
       }
     };
-  
+    
     fetchContours();
   }, [folder, selectedIndex]);
   
@@ -174,7 +215,37 @@ export default function StudyView() {
     cornerstone.events.addEventListener(element, EVENTS.VIEWPORT_MODIFIED, handler);
     return () => cornerstone.events.removeEventListener(element, EVENTS.VIEWPORT_MODIFIED, handler);
   }, []);
-
+  function calculatePolygonAreaMm(points, pixelSpacing) {
+    let area = 0;
+    for (let i = 0; i < points.length; i++) {
+      const j = (i + 1) % points.length;
+      area += (points[i].x * points[j].y) - (points[j].x * points[i].y);
+    }
+    const pixelArea = Math.abs(area / 2);
+    return pixelSpacing?.row && pixelSpacing?.col
+      ? pixelArea * pixelSpacing.row * pixelSpacing.col
+      : null;
+  }
+  
+  function pointToSegmentDistance(p, a, b) {
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    if (dx === 0 && dy === 0) return Math.hypot(p.x - a.x, p.y - a.y);
+    const t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / (dx * dx + dy * dy);
+    const tClamped = Math.max(0, Math.min(1, t));
+    const closest = { x: a.x + tClamped * dx, y: a.y + tClamped * dy };
+    return Math.hypot(p.x - closest.x, p.y - closest.y);
+  }
+  
+  function calcularAreaTotal(polygons, pixelSpacing) {
+    const all = Array.isArray(polygons[0]) ? polygons : [polygons];
+    return all.reduce((total, polygon) => {
+      return polygon.length >= 3
+        ? total + (calculatePolygonAreaMm(polygon, pixelSpacing) || 0)
+        : total;
+    }, 0);
+  }
+  
 // Dibuja líneas y vértices sobre canvas
 const drawOverlayLines = () => {
   const canvas = overlayRef.current;
@@ -187,33 +258,30 @@ const drawOverlayLines = () => {
   const ctx = canvas.getContext("2d");
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  layers.forEach((layer, idx) => {
-    console.log(`[DEBUG] Dibujando capa ${idx} (${layer.name}) - visible: ${layer.visible}`);
+  layers.forEach((layer) => {
     if (!layer.visible || !layer.points || layer.points.length === 0) return;
-  
-    //  Comprobamos si son múltiples contornos (lista de listas)
+
     const isMultiContour = Array.isArray(layer.points[0]);
-    const allPolygons = isMultiContour ? layer.points : (layer.points.length ? [layer.points] : []);
-    // const allPolygons = isMultiContour ? layer.points : [layer.points];
-  
+    const allPolygons = isMultiContour ? layer.points : [layer.points];
+
     allPolygons.forEach(polygon => {
-      const screenPoints = polygon.map((p, i) => {
-        const canvasPoint = cornerstone.pixelToCanvas(element, p);
-        if (
-          isNaN(canvasPoint.x) || isNaN(canvasPoint.y) ||
-          canvasPoint.x < 0 || canvasPoint.x > canvas.width ||
-          canvasPoint.y < 0 || canvasPoint.y > canvas.height
-        ) {
-          console.warn(`[DEBUG] Punto inválido o fuera de rango:`, {
-            index: i,
-            puntoOriginal: p,
-            puntoCanvas: canvasPoint
-          });
+      let toRender = polygon;
+
+      // Solo simplificamos si es editable
+      if (layer.editable && polygon.length >= 3) {
+        try {
+          toRender = simplify(
+            polygon.map(p => ({ x: p.x, y: p.y })),
+            1.5,
+            true
+          ).map(p => ({ x: p.x, y: p.y }));
+        } catch (e) {
+          console.warn("Error simplificando contorno:", e);
         }
-        return canvasPoint;
-      });
-      
-  
+      }
+
+      const screenPoints = toRender.map(p => cornerstone.pixelToCanvas(element, p));
+
       if (layer.closed && screenPoints.length >= 3) {
         ctx.beginPath();
         ctx.moveTo(screenPoints[0].x, screenPoints[0].y);
@@ -224,7 +292,7 @@ const drawOverlayLines = () => {
         ctx.fillStyle = "rgba(0,255,0,0.2)";
         ctx.fill();
       }
-  
+
       ctx.beginPath();
       ctx.strokeStyle = layer.color;
       ctx.lineWidth = 2;
@@ -234,23 +302,19 @@ const drawOverlayLines = () => {
       }
       if (layer.closed) ctx.lineTo(screenPoints[0].x, screenPoints[0].y);
       ctx.stroke();
-  
-      screenPoints.forEach(pt => {
-        ctx.beginPath();
-        ctx.arc(pt.x, pt.y, 5, 0, 2 * Math.PI);
-        ctx.fillStyle = "red";
-        ctx.fill();
-      });
+
+      // ❌ Solo dibujar puntos si la capa es editable
+      if (layer.editable) {
+        screenPoints.forEach(pt => {
+          ctx.beginPath();
+          ctx.arc(pt.x, pt.y, 5, 0, 2 * Math.PI);
+          ctx.fillStyle = "red";
+          ctx.fill();
+        });
+      }
     });
   });
-  // ctx.beginPath();
-  // ctx.arc(100, 100, 10, 0, 2 * Math.PI);
-  // ctx.fillStyle = "yellow";
-  // ctx.fill();
-  console.log("[DEBUG] Capas actuales:", layers);
-
 };
-  
 
   function calculatePolygonAreaMm(points, pixelSpacing) {
     let area = 0;
@@ -298,7 +362,9 @@ const drawOverlayLines = () => {
 
 // aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 const handleOverlayClick = (e) => {
-  if (!layers[selectedLayerIndex]) return;
+  // if (!layers[selectedLayerIndex]) return;
+  if (!layers[selectedLayerIndex] || !layers[selectedLayerIndex].editable) return;
+
   const element = viewerRef.current;
   const canvas = overlayRef.current;
   if (!element || !canvas || wasDragging) return;
@@ -372,61 +438,86 @@ const handleOverlayClick = (e) => {
     const element = viewerRef.current;
     if (!canvas || !element) return;
   
-    const onMouseDown = (e) => {
+    const handleMouseDown = (e) => {
+      if (e.button === 1) {
+        e.preventDefault();
+        setIsPanning(true);
+        setLastPanPosition({ x: e.clientX, y: e.clientY });
+        return;
+      }
+  
+      // Arrastrar vértices (botón izquierdo)
       setWasDragging(false);
       if (!layers[selectedLayerIndex]) return;
       const { x, y } = getMouseCoords(canvas, e);
       const layer = layers[selectedLayerIndex];
       const isMulti = Array.isArray(layer.points[0]);
       const polygons = isMulti ? layer.points : [layer.points];
-      
+  
       for (let pIdx = 0; pIdx < polygons.length; pIdx++) {
         const screenPoints = polygons[pIdx].map(p => cornerstone.pixelToCanvas(element, p));
         screenPoints.forEach((pt, i) => {
           if (Math.hypot(pt.x - x, pt.y - y) < 6) {
-            setDraggingIndex({ pIdx, i }); // guarda qué punto en qué polígono
+            setDraggingIndex({ pIdx, i });
           }
         });
       }
     };
   
-    const onMouseMove = (e) => {
-      if (draggingIndex === null) return;
-      const { x, y } = getMouseCoords(canvas, e);
-      const imageCoords = cornerstone.canvasToPixel(element, { x, y });
-      
-      setLayers(prev => {
-        const updated = [...prev];
-        const layer = { ...updated[selectedLayerIndex] };
-        const isMulti = Array.isArray(layer.points[0]);
-        const polygons = isMulti ? [...layer.points] : [ [...layer.points] ];
-      
-        if (draggingIndex) {
-          polygons[draggingIndex.pIdx][draggingIndex.i] = imageCoords;
-        }
-      
-        layer.points = isMulti ? polygons : polygons[0];
-        updated[selectedLayerIndex] = layer;
-        return updated;
-      });
-      
+    const handleMouseMove = (e) => {
+      if (isPanning && lastPanPosition) {
+        const deltaX = e.clientX - lastPanPosition.x;
+        const deltaY = e.clientY - lastPanPosition.y;
+        const viewport = cornerstone.getViewport(element);
+        viewport.translation.x += deltaX;
+        viewport.translation.y += deltaY;
+        cornerstone.setViewport(element, viewport);
+        setLastPanPosition({ x: e.clientX, y: e.clientY });
+        drawOverlayLines();
+        return;
+      }
   
-      drawOverlayLines();
+      if (draggingIndex !== null) {
+        const { x, y } = getMouseCoords(canvas, e);
+        const imageCoords = cornerstone.canvasToPixel(element, { x, y });
+        setLayers(prev => {
+          const updated = [...prev];
+          const layer = { ...updated[selectedLayerIndex] };
+          const isMulti = Array.isArray(layer.points[0]);
+          const polygons = isMulti ? [...layer.points] : [[...layer.points]];
+  
+          if (draggingIndex) {
+            polygons[draggingIndex.pIdx][draggingIndex.i] = imageCoords;
+          }
+  
+          layer.points = isMulti ? polygons : polygons[0];
+          updated[selectedLayerIndex] = layer;
+          return updated;
+        });
+        drawOverlayLines();
+      }
     };
   
-    const stopDragging = () => setDraggingIndex(null);
+    const stopInteraction = () => {
+      setDraggingIndex(null);
+      setIsPanning(false);
+      setLastPanPosition(null);
+    };
   
-    canvas.addEventListener("mousedown", onMouseDown);
-    canvas.addEventListener("mousemove", onMouseMove);
-    canvas.addEventListener("mouseup", stopDragging);
-    canvas.addEventListener("mouseleave", stopDragging);
+    canvas.addEventListener("mousedown", handleMouseDown);
+    canvas.addEventListener("mousemove", handleMouseMove);
+    canvas.addEventListener("mouseup", stopInteraction);
+    canvas.addEventListener("mouseleave", stopInteraction);
+    canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+  
     return () => {
-      canvas.removeEventListener("mousedown", onMouseDown);
-      canvas.removeEventListener("mousemove", onMouseMove);
-      canvas.removeEventListener("mouseup", stopDragging);
-      canvas.removeEventListener("mouseleave", stopDragging);
+      canvas.removeEventListener("mousedown", handleMouseDown);
+      canvas.removeEventListener("mousemove", handleMouseMove);
+      canvas.removeEventListener("mouseup", stopInteraction);
+      canvas.removeEventListener("mouseleave", stopInteraction);
     };
-  }, [layers, selectedLayerIndex, draggingIndex]);
+  }, [layers, selectedLayerIndex, draggingIndex, isPanning, lastPanPosition]);
+  
   
 
   const getMouseCoords = (canvas, e) => {

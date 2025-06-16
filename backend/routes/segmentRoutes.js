@@ -76,8 +76,6 @@ router.get('/mask-json/:folder/:index', async (req, res) => {
   // const jsonPath = path.join(__dirname, 'temp', folder, 'segmentaciones_por_dicom', `mask_${paddedIndex}.json`);
   const jsonPath = path.join(__dirname, '..', 'temp', folder, 'segmentaciones_por_dicom', `mask_${paddedIndex}.json`); //.. es esencial para salir de la carpeta routes/
 
-
-
   try {
     if (!fs.existsSync(jsonPath)) {
       return res.status(404).json({ error: "Archivo no encontrado" });
