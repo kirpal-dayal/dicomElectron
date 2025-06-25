@@ -1,4 +1,3 @@
-
 import numpy as np
 import glob
 from tifffile import imwrite
@@ -8,8 +7,8 @@ import segmentation_models as sm
 import os
 import json
 from skimage import measure
+from skimage.measure import approximate_polygon
 from keras.models import load_model
-# from skimage.measure import approximate_polygon # esto era para simplificar los contornos, pero no se usa en el código actual, queda residuos del código anterior que se deben quitar
 
 def test_U_net_estimation(X_test, n_classes):
     BACKBONE = 'vgg16'
@@ -27,7 +26,7 @@ def dicom_segmentation(path_original, size, n_clases):
     ds = None
     img_size = None
 
-    directory_path = path_original  # ✅ Usamos directamente el path recibido
+    directory_path = path_original
     for img_path in glob.glob(os.path.join(directory_path, '*')):
         if not os.path.isfile(img_path):
             continue
@@ -73,25 +72,46 @@ def dicom_segmentation(path_original, size, n_clases):
         scale_x = img_size[1] / SIZE_X
         scale_y = img_size[0] / SIZE_Y
 
-        json_lung = []
-        for contour in contours_lung:
-            if len(contour) >= 3:
-                scaled = [{"x": float(p[1] * scale_x), "y": float(p[0] * scale_y)} for p in contour]
-                json_lung.append(scaled)
+        def scale_contours(contours):
+            result = []
+            for contour in contours:
+                if len(contour) >= 3:
+                    scaled = [{"x": float(p[1] * scale_x), "y": float(p[0] * scale_y)} for p in contour]
+                    result.append(scaled)
+            return result
 
-        json_fibrosis = []
-        for contour in contours_fibrosis:
-            if len(contour) >= 3:
-                scaled = [{"x": float(p[1] * scale_x), "y": float(p[0] * scale_y)} for p in contour]
-                json_fibrosis.append(scaled)
-            
+        def simplify_contours(contours, tolerance=2.0):
+            result = []
+            for contour in contours:
+                approx = approximate_polygon(np.array(contour), tolerance=tolerance)
+                if len(approx) >= 3:
+                    scaled = [{"x": float(p[1] * scale_x), "y": float(p[0] * scale_y)} for p in approx]
+                    result.append(scaled)
+            return result
+
+        # Contornos originales escalados
+        json_lung = scale_contours(contours_lung)
+        json_fibrosis = scale_contours(contours_fibrosis)
+
+        # Contornos simplificados escalados
+        json_lung_simplified = simplify_contours(contours_lung)
+        json_fibrosis_simplified = simplify_contours(contours_fibrosis)
+
+        # Guardar archivo JSON original
         json_data = {
             "lung": json_lung,
             "fibrosis": json_fibrosis
         }
-
         with open(os.path.join(output_dir, f"mask_{idx:03d}.json"), 'w') as f:
             json.dump(json_data, f, indent=2)
+
+        # Guardar archivo JSON simplificado
+        simplified_data = {
+            "lung_editable": json_lung_simplified,
+            "fibrosis_editable": json_fibrosis_simplified
+        }
+        with open(os.path.join(output_dir, f"mask_{idx:03d}_simplified.json"), 'w') as f:
+            json.dump(simplified_data, f, indent=2)
 
         lung_pixels_pred.append(np.sum(mask_lung))
         fibrosis_pixels_pred.append(np.sum(mask_fibrosis))
@@ -101,9 +121,17 @@ def dicom_segmentation(path_original, size, n_clases):
     lung_volume = np.sum(lung_area_pred) * slice_thickness / 1000
     fibrosis_volume = np.sum(fibrosis_area_pred) * slice_thickness / 1000
 
-    print(f"Volumen de pulmón: {lung_volume:.2f} ml")
-    print(f"Volumen de fibrosis: {fibrosis_volume:.2f} ml")
-    print(f"Volumen total: {lung_volume + fibrosis_volume:.2f} ml")
+    volumen_data = {
+        "lung_volume_ml": round(abs(float(lung_volume)), 2),
+        "fibrosis_volume_ml": round(abs(float(fibrosis_volume)), 2),
+        "total_volume_ml": round(abs(float(lung_volume + fibrosis_volume)), 2)
+    }
+
+    volumen_path = os.path.join(output_dir, "volumenes.json")
+    with open(volumen_path, 'w') as f:
+        json.dump(volumen_data, f, indent=2)
+
+    print(f"Archivo de volúmenes guardado en: {volumen_path}")
 
     imwrite(os.path.join(output_dir, "ct_original.tif"),
             arr_original.astype(np.uint16),
