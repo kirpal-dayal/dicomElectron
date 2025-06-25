@@ -90,4 +90,41 @@ router.get('/mask-json/:folder/:index', async (req, res) => {
   }
 });
 
+// GET /api/segment/volumen/:folder
+router.get('/volumen/:folder', async (req, res) => {
+  const { folder } = req.params;
+
+  const volumenPath = path.join(__dirname, '..', 'temp', folder, 'segmentaciones_por_dicom', 'volumenes.json');
+
+  try {
+    if (!fs.existsSync(volumenPath)) {
+      return res.status(404).json({ error: "Archivo de volúmenes no encontrado" });
+    }
+
+    const data = await fs.promises.readFile(volumenPath, 'utf8');
+    res.setHeader('Content-Type', 'application/json');
+    res.send(data);
+  } catch (err) {
+    console.error("Error al leer volumenes.json:", err);
+    res.status(500).json({ error: "Error interno al leer volúmenes." });
+  }
+});
+
+// POST /api/segment/save-edit/:folder/:index
+router.post('/save-edit/:folder/:index', async (req, res) => {
+  const { folder, index } = req.params;
+  const jsonDir = path.join(__dirname, '..', 'temp', folder, 'segmentaciones_por_dicom');
+  const paddedIndex = String(index).padStart(3, '0');
+  const savePath = path.join(jsonDir, `mask_${paddedIndex}_simplified.json`);
+
+  try {
+    await fs.promises.writeFile(savePath, JSON.stringify(req.body, null, 2));
+    res.json({ message: 'Archivo editable guardado exitosamente.' });
+  } catch (err) {
+    console.error('Error al guardar el archivo JSON editable:', err);
+    res.status(500).json({ error: 'No se pudo guardar el archivo.' });
+  }
+});
+
+
 module.exports = router;
