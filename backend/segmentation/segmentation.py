@@ -49,10 +49,23 @@ def dicom_segmentation(path_original, size, n_clases):
         raise ValueError(f"No se encontraron imágenes DICOM en: {path_original}")
 
     arr_original = np.array(arr_original)
+    
     pixel_relation = img_size[0] / SIZE_X
-    pixelen = ds.PixelSpacing[0] * pixel_relation
+    original_pixel_spacing = ds.PixelSpacing  # mm/pixel
+    pixelen = original_pixel_spacing[0] * pixel_relation
     pixelarea = pixelen * pixelen
     slice_thickness = float(ds.SpacingBetweenSlices) if "SpacingBetweenSlices" in ds else 10
+
+    #  Loggear valores clave
+    print("\n========== [INFO] Parámetros de cálculo de volumen ==========")
+    print(f"Resolución original de imagen DICOM: {img_size}")
+    print(f"Resolución usada en modelo (resize): {SIZE_X} x {SIZE_Y}")
+    print(f"PixelSpacing original (DICOM): {original_pixel_spacing}")
+    print(f"Factor de escalado aplicado: {pixel_relation:.4f}")
+    print(f"pixelen utilizado (mm/pixel): {pixelen:.4f}")
+    print(f"Área por píxel (mm²): {pixelarea:.4f}")
+    print(f"Grosor de corte (slice thickness) (mm): {slice_thickness:.4f}")
+    print("==============================================================\n")
 
     arr_color = np.array([cv2.cvtColor(img, cv2.COLOR_GRAY2BGR) for img in arr_original])
     mask_pred = test_U_net_estimation(arr_color, n_clases)
@@ -89,29 +102,19 @@ def dicom_segmentation(path_original, size, n_clases):
                     result.append(scaled)
             return result
 
-        # Contornos originales escalados
         json_lung = scale_contours(contours_lung)
         json_fibrosis = scale_contours(contours_fibrosis)
-
-        # Contornos simplificados escalados
         json_lung_simplified = simplify_contours(contours_lung)
         json_fibrosis_simplified = simplify_contours(contours_fibrosis)
 
-        # Guardar archivo JSON original
-        json_data = {
-            "lung": json_lung,
-            "fibrosis": json_fibrosis
-        }
         with open(os.path.join(output_dir, f"mask_{idx:03d}.json"), 'w') as f:
-            json.dump(json_data, f, indent=2)
+            json.dump({"lung": json_lung, "fibrosis": json_fibrosis}, f, indent=2)
 
-        # Guardar archivo JSON simplificado
-        simplified_data = {
-            "lung_editable": json_lung_simplified,
-            "fibrosis_editable": json_fibrosis_simplified
-        }
         with open(os.path.join(output_dir, f"mask_{idx:03d}_simplified.json"), 'w') as f:
-            json.dump(simplified_data, f, indent=2)
+            json.dump({
+                "lung_editable": json_lung_simplified,
+                "fibrosis_editable": json_fibrosis_simplified
+            }, f, indent=2)
 
         lung_pixels_pred.append(np.sum(mask_lung))
         fibrosis_pixels_pred.append(np.sum(mask_fibrosis))
@@ -132,6 +135,7 @@ def dicom_segmentation(path_original, size, n_clases):
         json.dump(volumen_data, f, indent=2)
 
     print(f"Archivo de volúmenes guardado en: {volumen_path}")
+    print(f" Volumen total: {volumen_data['total_volume_ml']} ml (pulmón: {volumen_data['lung_volume_ml']} ml, fibrosis: {volumen_data['fibrosis_volume_ml']} ml)")
 
     imwrite(os.path.join(output_dir, "ct_original.tif"),
             arr_original.astype(np.uint16),

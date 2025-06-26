@@ -113,12 +113,21 @@ export default function StudyView() {
     
       // const volumenEditable = calcularVolumenEditableDesdeImage(image, layers);
       // setEditableVolumen(volumenEditable);
+      drawOverlayLines();
     });
+    // return () => {
+    //   try { cornerstone.disable(element); } catch {}
+    // };
     return () => {
-      try { cornerstone.disable(element); } catch {}
+      if (cornerstone.getEnabledElement(element)) {
+        try { cornerstone.disable(element); } catch {}
+      }
     };
   }, [selectedIndex, dicomList, scale]);
-
+  //redibuje cada vez que cambie layers o scale
+  useEffect(() => {
+    drawOverlayLines();
+  }, [layers, scale, selectedIndex]);
   // useEffect(() => {
   //   if (selectedIndex === null) return;
   
@@ -326,6 +335,34 @@ export default function StudyView() {
     return Math.hypot(p.x - closest.x, p.y - closest.y);
   }
   
+  // async function saveEditableJson(index) {
+  //   const paddedIndex = String(index).padStart(3, '0');
+  
+  //   const jsonData = {
+  //     lung_editable: layers[1]?.points || [],
+  //     fibrosis_editable: layers[3]?.points || [],
+  //   };
+  
+  //   try {
+  //     await axios.post(`/api/segment/save-edit/${folder}/${paddedIndex}`, jsonData);
+  //     console.log(`Guardado: mask_${paddedIndex}_simplified.json`);
+  
+  //     // Actualiza el estado de allLayersPerSlice
+  //     const updated = [...allLayersPerSlice];
+  //     updated[index] = layers;
+  //     setAllLayersPerSlice(updated);
+  
+  //     // Recalcula el volumen editable global
+  //     const firstImageId = `wadouri:${window.location.origin}${dicomList[0]}`;
+  //     const image = await cornerstone.loadAndCacheImage(firstImageId);
+  //     const { pixelSpacing, sliceThickness } = extractSpacingFromImage(image);
+  //     const volumenGlobal = calcularVolumenEditableGlobal(updated, pixelSpacing, sliceThickness);
+  //     setEditableVolumen(volumenGlobal);
+  
+  //   } catch (err) {
+  //     console.error("Error al guardar archivo editable:", err);
+  //   }
+  // }
   async function saveEditableJson(index) {
     const paddedIndex = String(index).padStart(3, '0');
   
@@ -337,6 +374,19 @@ export default function StudyView() {
     try {
       await axios.post(`/api/segment/save-edit/${folder}/${paddedIndex}`, jsonData);
       console.log(`Guardado: mask_${paddedIndex}_simplified.json`);
+  
+      // ✅ Actualiza el estado de allLayersPerSlice
+      const updated = [...allLayersPerSlice];
+      updated[index] = layers;
+      setAllLayersPerSlice(updated);
+  
+      // ✅ Recalcula el volumen editable global
+      const firstImageId = `wadouri:${window.location.origin}${dicomList[0]}`;
+      const image = await cornerstone.loadAndCacheImage(firstImageId);
+      const { pixelSpacing, sliceThickness } = extractSpacingFromImage(image);
+      const volumenGlobal = calcularVolumenEditableGlobal(updated, pixelSpacing, sliceThickness);
+      setEditableVolumen(volumenGlobal);
+  
     } catch (err) {
       console.error("Error al guardar archivo editable:", err);
     }
@@ -363,6 +413,10 @@ const drawOverlayLines = () => {
 
     allPolygons.forEach(polygon => {
       let toRender = polygon;
+
+      // const screenPoints = toRender.map(p => cornerstone.pixelToCanvas(element, p));
+      const enabledElement = cornerstone.getEnabledElement(element);
+      if (!enabledElement || !enabledElement.viewport) return;
 
       const screenPoints = toRender.map(p => cornerstone.pixelToCanvas(element, p));
 
