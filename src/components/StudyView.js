@@ -81,6 +81,8 @@ export default function StudyView() {
   const [volumenes, setVolumenes] = useState(null); //estado para los volúmenes
   const [editableVolumen, setEditableVolumen] = useState(null);
 
+  const isViewerEnabledRef = useRef(false);
+
 
   // Cargar lista de archivos DICOM desde backend
   useEffect(() => {
@@ -101,116 +103,55 @@ export default function StudyView() {
   useEffect(() => {
     const element = viewerRef.current;
     if (!element || selectedIndex === null || !dicomList[selectedIndex]) return;
-
-    cornerstone.enable(element);
-    const imageId = `wadouri:${window.location.origin}${dicomList[selectedIndex]}`;
-    
-    cornerstone.loadAndCacheImage(imageId).then(image => {
-      cornerstone.displayImage(element, image);
-      const viewport = cornerstone.getDefaultViewportForImage(element, image);
-      viewport.scale = scale;
-      cornerstone.setViewport(element, viewport);
-    
-      // const volumenEditable = calcularVolumenEditableDesdeImage(image, layers);
-      // setEditableVolumen(volumenEditable);
-      drawOverlayLines();
-    });
-    // return () => {
-    //   try { cornerstone.disable(element); } catch {}
-    // };
-    return () => {
-      if (cornerstone.getEnabledElement(element)) {
-        try { cornerstone.disable(element); } catch {}
+  
+    try {
+      if (!isViewerEnabledRef.current) {
+        try {
+          cornerstone.enable(element);
+          isViewerEnabledRef.current = true;
+        } catch (e) {
+          console.warn("No se pudo habilitar el viewer:", e);
+        }
       }
-    };
+  
+      const imageId = `wadouri:${window.location.origin}${dicomList[selectedIndex]}`;
+  
+      cornerstone.loadAndCacheImage(imageId).then(image => {
+        cornerstone.displayImage(element, image);
+        const viewport = cornerstone.getDefaultViewportForImage(element, image);
+        viewport.scale = scale;
+        cornerstone.setViewport(element, viewport);
+        drawOverlayLines();
+      }).catch(err => {
+        console.error("Error al cargar imagen:", err);
+      });
+    } catch (err) {
+      console.error("Error inesperado en displayImage:", err);
+    }
+  // No deshabilites automáticamente en el return si estás reutilizando el viewerRef
+    // return () => {
+    //   if (cornerstone.getEnabledElement(element)) {
+    //     try {
+    //       cornerstone.disable(element);
+    //     } catch (e) {
+    //       console.warn("No se pudo deshabilitar el elemento:", e);
+    //     }
+    //   }
+    // };
   }, [selectedIndex, dicomList, scale]);
+  
   //redibuje cada vez que cambie layers o scale
   useEffect(() => {
-    drawOverlayLines();
+    const element = viewerRef.current;
+    if (!element) return;
+    try {
+      cornerstone.getEnabledElement(element);
+      drawOverlayLines();
+    } catch {
+      // Elemento no habilitado todavía
+    }
   }, [layers, scale, selectedIndex]);
-  // useEffect(() => {
-  //   if (selectedIndex === null) return;
-  
-  //   const paddedIndex = String(selectedIndex).padStart(3, '0');
 
-  //   const fetchContours = async () => {
-  //     try {
-  //       const [originalRes, editableRes] = await Promise.all([
-  //         axios.get(`/api/segment/mask-json/${folder}/${paddedIndex}`),
-  //         axios.get(`/api/segment/mask-json/${folder}/${paddedIndex}_simplified`) // <-- nuevo archivo
-  //       ]);
-    
-  //       const original = originalRes.data;
-  //       const editable = editableRes.data;
-    
-  //       const layersConfig = [
-  //         {
-  //           name: "Pulmón (modelo)",
-  //           points: original.lung || [],
-  //           visible: true,
-  //           color: "lime",
-  //           closed: true,
-  //           editable: false,
-  //         },
-  //         {
-  //           name: "Pulmón (editable)",
-  //           points: editable.lung_editable || [],
-  //           visible: true,
-  //           color: "yellow",
-  //           closed: true,
-  //           editable: true,
-  //         },
-  //         {
-  //           name: "Fibrosis (modelo)",
-  //           points: original.fibrosis || [],
-  //           visible: true,
-  //           color: "red",
-  //           closed: true,
-  //           editable: false,
-  //         },
-  //         {
-  //           name: "Fibrosis (editable)",
-  //           points: editable.fibrosis_editable || [],
-  //           visible: true,
-  //           color: "orange",
-  //           closed: true,
-  //           editable: true,
-  //         }
-  //       ];
-    
-  //       setLayers(layersConfig);
-  //       const firstEditable = layersConfig.findIndex(l => l.editable);
-  //       if (firstEditable !== -1) {
-  //         setSelectedLayerIndex(firstEditable);
-  //       }
-  //       // setSelectedLayerIndex(1);
-    
-  //     } catch (error) {
-  //       console.warn("Error al cargar contornos:", error);
-  //       // fallback si no hay ninguno
-  //       setLayers([
-  //         {
-  //           name: "Pulmón (editable)",
-  //           points: [],
-  //           visible: true,
-  //           color: "yellow",
-  //           closed: false,
-  //           editable: true
-  //         },
-  //         {
-  //           name: "Fibrosis (editable)",
-  //           points: [],
-  //           visible: true,
-  //           color: "orange",
-  //           closed: false,
-  //           editable: true
-  //         }
-  //       ]);
-  //       setSelectedLayerIndex(0);
-  //     }
-  //   };        
-  //   fetchContours();
-  // }, [folder, selectedIndex]);
   useEffect(() => {
     const fetchAllEditableLayers = async () => {
       const promises = dicomList.map((_, i) => {
@@ -306,17 +247,6 @@ export default function StudyView() {
       }
     }
   }, [selectedIndex, allLayersPerSlice]);
-
-  useEffect(() => {
-    if (selectedIndex !== null && allLayersPerSlice[selectedIndex]) {
-      setLayers(allLayersPerSlice[selectedIndex]);
-      const firstEditable = allLayersPerSlice[selectedIndex].findIndex(l => l.editable);
-      if (firstEditable !== -1) {
-        setSelectedLayerIndex(firstEditable);
-      }
-    }
-  }, [selectedIndex, allLayersPerSlice]);
-
   useEffect(() => {
     const element = viewerRef.current;
     if (!element) return;
@@ -375,12 +305,12 @@ export default function StudyView() {
       await axios.post(`/api/segment/save-edit/${folder}/${paddedIndex}`, jsonData);
       console.log(`Guardado: mask_${paddedIndex}_simplified.json`);
   
-      // ✅ Actualiza el estado de allLayersPerSlice
+      // Actualiza el estado de allLayersPerSlice
       const updated = [...allLayersPerSlice];
       updated[index] = layers;
       setAllLayersPerSlice(updated);
   
-      // ✅ Recalcula el volumen editable global
+      // Recalcula el volumen editable global
       const firstImageId = `wadouri:${window.location.origin}${dicomList[0]}`;
       const image = await cornerstone.loadAndCacheImage(firstImageId);
       const { pixelSpacing, sliceThickness } = extractSpacingFromImage(image);
@@ -395,9 +325,16 @@ export default function StudyView() {
   
 // Dibuja líneas y vértices sobre canvas
 const drawOverlayLines = () => {
+
   const canvas = overlayRef.current;
   const element = viewerRef.current;
   if (!canvas || !element) return;
+  try {
+    cornerstone.getEnabledElement(element);
+  } catch {
+    cornerstone.enable(element);
+  }
+  
 
   const rect = element.getBoundingClientRect();
   canvas.width = rect.width;
@@ -412,13 +349,14 @@ const drawOverlayLines = () => {
     const allPolygons = isMultiContour ? layer.points : [layer.points];
 
     allPolygons.forEach(polygon => {
-      let toRender = polygon;
+      if (!Array.isArray(polygon) || polygon.length < 2) return;
 
-      // const screenPoints = toRender.map(p => cornerstone.pixelToCanvas(element, p));
-      const enabledElement = cornerstone.getEnabledElement(element);
-      if (!enabledElement || !enabledElement.viewport) return;
+      // 🔐 Filtrar puntos inválidos
+      const filteredPoints = polygon.filter(p => p && typeof p.x === 'number' && typeof p.y === 'number');
+      if (filteredPoints.length < 2) return;
 
-      const screenPoints = toRender.map(p => cornerstone.pixelToCanvas(element, p));
+      const screenPoints = filteredPoints.map(p => cornerstone.pixelToCanvas(element, p));
+      if (screenPoints.some(pt => !pt || typeof pt.x !== 'number')) return;
 
       if (layer.closed && screenPoints.length >= 3) {
         ctx.beginPath();
@@ -441,7 +379,6 @@ const drawOverlayLines = () => {
       if (layer.closed) ctx.lineTo(screenPoints[0].x, screenPoints[0].y);
       ctx.stroke();
 
-      // ❌ Solo dibujar puntos si la capa es editable
       if (layer.editable) {
         screenPoints.forEach(pt => {
           ctx.beginPath();
@@ -453,6 +390,7 @@ const drawOverlayLines = () => {
     });
   });
 };
+
 
   function calculatePolygonAreaMm(points, pixelSpacing) {
     let area = 0;
@@ -471,8 +409,8 @@ const drawOverlayLines = () => {
 
 // aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 const handleOverlayClick = (e) => {
-  // if (!layers[selectedLayerIndex]) return;
-  if (!layers[selectedLayerIndex] || !layers[selectedLayerIndex].editable) return;
+  const layer = layers[selectedLayerIndex];
+  if (!layer || !layer.editable) return;
 
   const element = viewerRef.current;
   const canvas = overlayRef.current;
@@ -485,12 +423,14 @@ const handleOverlayClick = (e) => {
 
   setLayers(prev => {
     const updated = [...prev];
-    const layer = { ...updated[selectedLayerIndex] };
-    const isMulti = Array.isArray(layer.points[0]);
-    const polygons = isMulti ? layer.points : [layer.points];
+    const newLayer = { ...updated[selectedLayerIndex] };
+    const isMulti = Array.isArray(newLayer.points[0]);
+    const polygons = isMulti ? newLayer.points.map(p => [...p]) : [ [...newLayer.points] ];
 
     for (let pIdx = 0; pIdx < polygons.length; pIdx++) {
       const polygon = polygons[pIdx];
+      if (!polygon || polygon.length === 0) continue;
+
       const screenPoints = polygon.map(p => cornerstone.pixelToCanvas(element, p));
 
       // Alt-click para eliminar punto
@@ -498,21 +438,25 @@ const handleOverlayClick = (e) => {
         const idx = screenPoints.findIndex(pt => Math.hypot(pt.x - x, pt.y - y) < 6);
         if (idx !== -1) {
           polygon.splice(idx, 1);
-          updated[selectedLayerIndex].points = isMulti ? [...polygons] : [...polygon];
+          newLayer.points = isMulti ? polygons : polygons[0];
+          updated[selectedLayerIndex] = newLayer;
           return updated;
         }
       }
 
       // Click cerca del borde para insertar punto
-      if (layer.closed) {
+      if (newLayer.closed && screenPoints.length >= 2) {
         const insertThreshold = 6;
         for (let i = 0; i < screenPoints.length; i++) {
           const a = screenPoints[i];
           const b = screenPoints[(i + 1) % screenPoints.length];
+          if (!a || !b) continue;
+
           const dist = pointToSegmentDistance({ x, y }, a, b);
           if (dist < insertThreshold) {
             polygon.splice(i + 1, 0, imagePoint);
-            updated[selectedLayerIndex].points = isMulti ? [...polygons] : [...polygon];
+            newLayer.points = isMulti ? polygons : polygons[0];
+            updated[selectedLayerIndex] = newLayer;
             return updated;
           }
         }
@@ -521,16 +465,18 @@ const handleOverlayClick = (e) => {
         if (polygon.length >= 3) {
           const first = polygon[0];
           if (Math.hypot(imagePoint.x - first.x, imagePoint.y - first.y) < 6) {
-            layer.closed = true;
-            updated[selectedLayerIndex] = layer;
+            newLayer.closed = true;
+            updated[selectedLayerIndex] = newLayer;
             return updated;
           }
         }
 
+        // Añadir punto nuevo
         const tooClose = screenPoints.some(pt => Math.hypot(pt.x - x, pt.y - y) < 6);
         if (!tooClose) {
           polygon.push(imagePoint);
-          updated[selectedLayerIndex].points = isMulti ? [...polygons] : [...polygon];
+          newLayer.points = isMulti ? polygons : polygons[0];
+          updated[selectedLayerIndex] = newLayer;
           return updated;
         }
       }
@@ -539,6 +485,7 @@ const handleOverlayClick = (e) => {
     return updated;
   });
 };
+
 
 
   // Soporte para arrastrar vértices
@@ -677,7 +624,7 @@ const handleOverlayClick = (e) => {
               className="thumb"
               onClick={() => setSelectedIndex(i)}
               ref={async (el) => {
-                if (el) {
+                if (el && !cornerstone.getEnabledElements().some(e => e.element === el)) {
                   try {
                     cornerstone.enable(el);
                     const image = await cornerstone.loadAndCacheImage(`wadouri:${window.location.origin}${url}`);
@@ -685,6 +632,7 @@ const handleOverlayClick = (e) => {
                   } catch {}
                 }
               }}
+              
               style={{
                 background: "black",
                 borderRadius: "8px",

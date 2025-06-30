@@ -96,11 +96,15 @@ def dicom_segmentation(path_original, size, n_clases):
         def simplify_contours(contours, tolerance=2.0):
             result = []
             for contour in contours:
+                if contour is None or len(contour) < 3:
+                    continue
                 approx = approximate_polygon(np.array(contour), tolerance=tolerance)
+                approx = [p for p in approx if isinstance(p, (list, np.ndarray)) and len(p) == 2]  # asegura estructura (y, x)
                 if len(approx) >= 3:
                     scaled = [{"x": float(p[1] * scale_x), "y": float(p[0] * scale_y)} for p in approx]
                     result.append(scaled)
             return result
+
 
         json_lung = scale_contours(contours_lung)
         json_fibrosis = scale_contours(contours_fibrosis)
@@ -110,11 +114,16 @@ def dicom_segmentation(path_original, size, n_clases):
         with open(os.path.join(output_dir, f"mask_{idx:03d}.json"), 'w') as f:
             json.dump({"lung": json_lung, "fibrosis": json_fibrosis}, f, indent=2)
 
-        with open(os.path.join(output_dir, f"mask_{idx:03d}_simplified.json"), 'w') as f:
-            json.dump({
+        try:
+            json_str = json.dumps({
                 "lung_editable": json_lung_simplified,
                 "fibrosis_editable": json_fibrosis_simplified
-            }, f, indent=2)
+            }, indent=2)
+            json.loads(json_str)  # validación rápida del contenido
+            with open(os.path.join(output_dir, f"mask_{idx:03d}_simplified.json"), 'w') as f:
+                f.write(json_str)
+        except Exception as e:
+            print(f"[ERROR] No se pudo guardar mask_{idx:03d}_simplified.json:", e)
 
         lung_pixels_pred.append(np.sum(mask_lung))
         fibrosis_pixels_pred.append(np.sum(mask_fibrosis))
