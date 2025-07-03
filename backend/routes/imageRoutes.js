@@ -36,7 +36,7 @@ const db       = require('../connectionDb');
 const { nameDirectoryDicom } = require('../configConst');
 const { exec } = require('child_process'); // Para ejecutar scripts Python 
 const router = express.Router();
-
+const { guardarMascarasEnBD } = require('./segmentRoutes'); // Importa la función para guardar máscaras
 /**
  * Utilidad: Recursivamente encuentra archivos DICOM válidos (.dcm o sin extensión)
  */
@@ -112,15 +112,23 @@ for (let i = 0; i < dicomFiles.length; i++) {
 const segmentationScript = path.join(__dirname, '../segmentation/main.py');
 const command = `python "${segmentationScript}" "${studyDir}"`;
 
-exec(command, (error, stdout, stderr) => {
+exec(command, async (error, stdout, stderr) => {
   if (error) {
     console.error(' Error al ejecutar la segmentación:', error);
     console.error('stderr:', stderr);
   } else {
     console.log('Segmentación completada automáticamente.');
     console.log('stdout:', stdout);
+
+    // EXTRAER NSS Y FECHA
+    try {
+      await guardarMascarasEnBD(`${nss}_${safeFecha}`, nss, fecha);
+    } catch (err) {
+      console.error('❌ Error al guardar máscaras en BD:', err);
+    }
   }
 });
+
 
     //  Enviar respuesta al cliente
     res.json({
