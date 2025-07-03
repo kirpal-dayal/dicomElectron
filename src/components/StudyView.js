@@ -241,12 +241,21 @@ export default function StudyView() {
   useEffect(() => {
     if (selectedIndex !== null && allLayersPerSlice[selectedIndex]) {
       setLayers(allLayersPerSlice[selectedIndex]);
-      const firstEditable = allLayersPerSlice[selectedIndex].findIndex(l => l.editable);
-      if (firstEditable !== -1) {
-        setSelectedLayerIndex(firstEditable);
+  
+      const currentSliceLayers = allLayersPerSlice[selectedIndex];
+      if (
+        selectedLayerIndex == null || 
+        !currentSliceLayers[selectedLayerIndex] || 
+        !currentSliceLayers[selectedLayerIndex].editable
+      ) {
+        const firstEditable = currentSliceLayers.findIndex(l => l.editable);
+        if (firstEditable !== -1) {
+          setSelectedLayerIndex(firstEditable);
+        }
       }
     }
   }, [selectedIndex, allLayersPerSlice]);
+  
   useEffect(() => {
     const element = viewerRef.current;
     if (!element) return;
@@ -264,53 +273,37 @@ export default function StudyView() {
     const closest = { x: a.x + tClamped * dx, y: a.y + tClamped * dy };
     return Math.hypot(p.x - closest.x, p.y - closest.y);
   }
-  
-  // async function saveEditableJson(index) {
-  //   const paddedIndex = String(index).padStart(3, '0');
-  
-  //   const jsonData = {
-  //     lung_editable: layers[1]?.points || [],
-  //     fibrosis_editable: layers[3]?.points || [],
-  //   };
-  
-  //   try {
-  //     await axios.post(`/api/segment/save-edit/${folder}/${paddedIndex}`, jsonData);
-  //     console.log(`Guardado: mask_${paddedIndex}_simplified.json`);
-  
-  //     // Actualiza el estado de allLayersPerSlice
-  //     const updated = [...allLayersPerSlice];
-  //     updated[index] = layers;
-  //     setAllLayersPerSlice(updated);
-  
-  //     // Recalcula el volumen editable global
-  //     const firstImageId = `wadouri:${window.location.origin}${dicomList[0]}`;
-  //     const image = await cornerstone.loadAndCacheImage(firstImageId);
-  //     const { pixelSpacing, sliceThickness } = extractSpacingFromImage(image);
-  //     const volumenGlobal = calcularVolumenEditableGlobal(updated, pixelSpacing, sliceThickness);
-  //     setEditableVolumen(volumenGlobal);
-  
-  //   } catch (err) {
-  //     console.error("Error al guardar archivo editable:", err);
-  //   }
-  // }
+
   async function saveEditableJson(index) {
     const paddedIndex = String(index).padStart(3, '0');
   
+    const lungLayer = layers.find(l => l.name.includes("Pulmón") && l.editable);
+    const fibrosisLayer = layers.find(l => l.name.includes("Fibrosis") && l.editable);
+  
+    // Normaliza estructura para evitar errores de parseo
+    if (lungLayer && lungLayer.points && !Array.isArray(lungLayer.points[0])) {
+      lungLayer.points = [lungLayer.points];
+    }
+    if (fibrosisLayer && fibrosisLayer.points && !Array.isArray(fibrosisLayer.points[0])) {
+      fibrosisLayer.points = [fibrosisLayer.points];
+    }
+  
     const jsonData = {
-      lung_editable: layers[1]?.points || [],
-      fibrosis_editable: layers[3]?.points || [],
+      lung_editable: lungLayer?.points || [],
+      fibrosis_editable: fibrosisLayer?.points || [],
     };
   
     try {
+      const jsonStr = JSON.stringify(jsonData);
+      JSON.parse(jsonStr); // Validación rápida
+  
       await axios.post(`/api/segment/save-edit/${folder}/${paddedIndex}`, jsonData);
       console.log(`Guardado: mask_${paddedIndex}_simplified.json`);
   
-      // Actualiza el estado de allLayersPerSlice
       const updated = [...allLayersPerSlice];
       updated[index] = layers;
       setAllLayersPerSlice(updated);
   
-      // Recalcula el volumen editable global
       const firstImageId = `wadouri:${window.location.origin}${dicomList[0]}`;
       const image = await cornerstone.loadAndCacheImage(firstImageId);
       const { pixelSpacing, sliceThickness } = extractSpacingFromImage(image);
@@ -318,11 +311,11 @@ export default function StudyView() {
       setEditableVolumen(volumenGlobal);
   
     } catch (err) {
-      console.error("Error al guardar archivo editable:", err);
+      console.error("Error al guardar JSON editable:", err);
     }
   }
   
-  
+
 // Dibuja líneas y vértices sobre canvas
 const drawOverlayLines = () => {
 
@@ -440,6 +433,7 @@ const handleOverlayClick = (e) => {
           polygon.splice(idx, 1);
           newLayer.points = isMulti ? polygons : polygons[0];
           updated[selectedLayerIndex] = newLayer;
+          saveEditableJson(selectedIndex);
           return updated;
         }
       }
@@ -457,6 +451,7 @@ const handleOverlayClick = (e) => {
             polygon.splice(i + 1, 0, imagePoint);
             newLayer.points = isMulti ? polygons : polygons[0];
             updated[selectedLayerIndex] = newLayer;
+            saveEditableJson(selectedIndex);
             return updated;
           }
         }
@@ -467,6 +462,7 @@ const handleOverlayClick = (e) => {
           if (Math.hypot(imagePoint.x - first.x, imagePoint.y - first.y) < 6) {
             newLayer.closed = true;
             updated[selectedLayerIndex] = newLayer;
+            saveEditableJson(selectedIndex);
             return updated;
           }
         }
@@ -477,6 +473,8 @@ const handleOverlayClick = (e) => {
           polygon.push(imagePoint);
           newLayer.points = isMulti ? polygons : polygons[0];
           updated[selectedLayerIndex] = newLayer;
+            // Guarda después de modificar
+          saveEditableJson(selectedIndex);
           return updated;
         }
       }
@@ -645,134 +643,169 @@ const handleOverlayClick = (e) => {
   
       {selectedIndex !== null && (
         <div className="fullscreen-overlay">
-          <div className="fullscreen-header">
-            <span>{selectedIndex + 1} / {dicomList.length}</span>
-            <div>
-              <button
-                className="btn"
-                onClick={() => {
-                  setLayers(prev => {
-                    const updated = [...prev];
-                    if (updated[selectedLayerIndex]) {
-                      updated[selectedLayerIndex] = {
-                        ...updated[selectedLayerIndex],
-                        points: [],
-                        closed: false
-                      };
-                    }
-                    return updated;
-                  });
-                }}
-              >
-                Limpiar
-              </button>
-              <button className="btn" onClick={() => setSelectedIndex(null)}>Cerrar</button>
-            </div>
-          </div>
-  
-          {volumenes && (
-            <div style={{ color: "#fff", marginBottom: "1rem" }}>
-              <div><strong>Volumen de pulmón:</strong> {volumenes.lung_volume_ml} ml</div>
-              <div><strong>Volumen de fibrosis:</strong> {volumenes.fibrosis_volume_ml} ml</div>
-              <div><strong>Volumen total:</strong> {volumenes.total_volume_ml} ml</div>
-            </div>
-          )}
-          {editableVolumen && (
-            <div style={{ color: "#fff", marginBottom: "1rem" }}>
-              <div><strong>Editable pulmón:</strong> {editableVolumen.editableLungVolume} ml</div>
-              <div><strong>Editable fibrosis:</strong> {editableVolumen.editableFibrosisVolume} ml</div>
-              <div><strong>Editable total:</strong> {(
-                editableVolumen.editableLungVolume + editableVolumen.editableFibrosisVolume
-              ).toFixed(2)} ml</div>
-            </div>
-          )}
-  
-          <div className="fullscreen-container">
-            <div ref={viewerRef} className="fullscreen-viewer" />
-            <canvas
-              ref={overlayRef}
-              className="overlay-canvas"
-              onClick={handleOverlayClick}
-            />
-          </div>
-  
-          <div className="fullscreen-controls">
-            <label style={{ color: "#fff" }}>Zoom:</label>
+  <div className="sidebar-panel">
+    <div className="sidebar-header">
+      <strong>Imagen {selectedIndex + 1} / {dicomList.length}</strong>
+      <button className="btn" onClick={() => setSelectedIndex(null)}>Cerrar</button>
+    </div>
+
+    <div style={{ marginBottom: "1rem" }}>
+      <button
+        className="btn"
+        onClick={() => {
+          setLayers(prev => {
+            const updated = [...prev];
+            if (updated[selectedLayerIndex]) {
+              updated[selectedLayerIndex] = {
+                ...updated[selectedLayerIndex],
+                points: [],
+                closed: false
+              };
+            }
+            saveEditableJson(selectedIndex);  // guardar después de limpiar
+            return updated;
+          });
+        }}
+      >
+        Limpiar capa activa
+      </button>
+    </div>
+
+    {volumenes && (
+      <div style={{ color: "#fff", marginBottom: "1rem" }}>
+        <div><strong>Volumen pulmón:</strong> {volumenes.lung_volume_ml} ml</div>
+        <div><strong>Volumen fibrosis:</strong> {volumenes.fibrosis_volume_ml} ml</div>
+        <div><strong>Total:</strong> {volumenes.total_volume_ml} ml</div>
+      </div>
+    )}
+    {editableVolumen && (
+      <div style={{ color: "#fff", marginBottom: "1rem" }}>
+        <div><strong>Edit. pulmón:</strong> {editableVolumen.editableLungVolume} ml</div>
+        <div><strong>Edit. fibrosis:</strong> {editableVolumen.editableFibrosisVolume} ml</div>
+        <div><strong>Edit. total:</strong> {(
+          editableVolumen.editableLungVolume + editableVolumen.editableFibrosisVolume
+        ).toFixed(2)} ml</div>
+      </div>
+    )}
+
+    <div>
+      <label style={{ color: "#fff" }}>Zoom:</label>
+      <input
+        type="range"
+        min="0.1"
+        max="10"
+        step="0.01"
+        value={scale}
+        onChange={handleZoomChange}
+      />
+    </div>
+
+    <div style={{ marginTop: "1rem" }}>
+      <button
+        className="btn"
+        onClick={() => setSelectedIndex(prev => Math.max(0, prev - 1))}
+        disabled={selectedIndex === 0}
+      >
+        Anterior
+      </button>
+      <button
+        className="btn"
+        onClick={() => setSelectedIndex(prev => Math.min(dicomList.length - 1, prev + 1))}
+        disabled={selectedIndex === dicomList.length - 1}
+      >
+        Siguiente
+      </button>
+    </div>
+
+    {layers.length > 0 && (
+      <>
+        <p style={{ color: "#fff", marginTop: "1rem" }}>Capas:</p>
+        {layers.map((layer, i) => (
+          <label key={i} style={{ color: "#fff", display: "block" }}>
             <input
-              type="range"
-              min="0.1"
-              max="10"
-              step="0.01"
-              value={scale}
-              onChange={handleZoomChange}
-            />
-            <div>
-              <button
-                className="btn"
-                onClick={() => setSelectedIndex(prev => Math.max(0, prev - 1))}
-                disabled={selectedIndex === 0}
-              >
-                Anterior
-              </button>
-              <button
-                className="btn"
-                onClick={() => setSelectedIndex(prev => Math.min(dicomList.length - 1, prev + 1))}
-                disabled={selectedIndex === dicomList.length - 1}
-              >
-                Siguiente
-              </button>
-            </div>
-          </div>
-  
-          {layers.length > 0 && (
-            <div style={{ marginTop: "1rem" }}>
-              <p style={{ color: "#fff", marginBottom: "0.5rem" }}>Capas:</p>
-              {layers.map((layer, i) => (
-                <label key={i} style={{ color: "#fff", marginRight: "1rem" }}>
-                  <input
-                    type="checkbox"
-                    checked={layer.visible}
-                    onChange={() => {
-                      const updated = [...layers];
-                      updated[i].visible = !updated[i].visible;
-                      setLayers(updated);
-                    }}
-                  />{" "}
+              type="checkbox"
+              checked={layer.visible}
+              onChange={() => {
+                const updated = [...layers];
+                updated[i].visible = !updated[i].visible;
+                setLayers(updated);
+              }}
+            />{" "}
+            {layer.name}
+          </label>
+        ))}
+
+        <div style={{ marginTop: "1rem", color: "#fff" }}>
+          <label>Editar capa:</label>
+          <select
+            value={selectedLayerIndex}
+            onChange={(e) => setSelectedLayerIndex(parseInt(e.target.value))}
+          >
+            {layers.map((layer, i) =>
+              layer.editable ? (
+                <option key={i} value={i}>
                   {layer.name}
-                </label>
-              ))}
-  
-              <div style={{ marginTop: "1rem", color: "#fff" }}>
-                <label>Editar capa: </label>
-                <select
-                  value={selectedLayerIndex}
-                  onChange={(e) => setSelectedLayerIndex(parseInt(e.target.value))}
-                >
-                  {layers.map((layer, i) =>
-                    layer.editable ? (
-                      <option key={i} value={i}>
-                        {layer.name}
-                      </option>
-                    ) : null
-                  )}
-                </select>
-              </div>
-            </div>
-          )}
+                </option>
+              ) : null
+            )}
+          </select>
         </div>
-      )}
+      </>
+    )}
+  </div>
+
+  <div className="main-panel">
+    <div ref={viewerRef} className="fullscreen-viewer" />
+    <canvas
+      ref={overlayRef}
+      className="overlay-canvas"
+      onClick={handleOverlayClick}
+    />
+  </div>
+</div>
+
+          )}
   
       <style>{`
-        .fullscreen-overlay {
-          position: fixed;
-          top: 0; left: 0; right: 0; bottom: 0;
-          background: rgba(0,0,0,0.96);
-          z-index: 1000;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-        }
+.fullscreen-overlay {
+  position: fixed;           /* Para que flote sobre todo */
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  flex-direction: row;
+  gap: 0;
+  background: #000;          /* opcional, pero útil como fondo */
+  z-index: 9999;             /* Para estar al frente de todo */
+}
+
+
+            .sidebar-panel {
+              width: 280px;
+              background: #111;
+              color: white;
+              padding: 1rem;
+              display: flex;
+              flex-direction: column;
+              height: 100vh;
+              overflow-y: auto;
+              box-shadow: 2px 0 6px rgba(0, 0, 0, 0.4);
+            }
+
+            .main-panel {
+              flex: 1;
+              position: relative;
+              height: 100vh;
+            }
+
+            .sidebar-header {
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              margin-bottom: 1rem;
+            }
+
   
         .fullscreen-header {
           width: 100%;
