@@ -6,9 +6,9 @@ const mysql = require('mysql2');
 const db = mysql.createConnection({
   host: 'localhost',
   user: 'root',
-  password: '12345678',
+  password: '1234',
   database: 'fibrosis_v06'
-});
+});  // .promise es clave para que funcione con async/await al momento de estar con los json
 
 // Conectar a la base de datos
 db.connect(err => {

@@ -60,6 +60,10 @@ if (fs.existsSync(routesDir)) {
         app.use('/api/image', route);
         console.log('  Ruta /api/image montada');
         console.log('Rutas de imágenes montadas');
+      } else if (file === "segmentRoutes.js") {
+        const { router } = require(path.join(routesDir, file)); // ✅ desestructuramos
+        app.use('/api/segment', router); // ✅ usamos solo el router
+        console.log('  Ruta /api/segment montada');
       } else {
         app.use('/api', route);
         console.log(`  Ruta /api/${file.replace('.js','')} registrada como Router.`);
