@@ -2,6 +2,7 @@ import numpy as np
 import glob
 from tifffile import imwrite
 import pydicom as pd
+from pydicom.misc import is_dicom
 import cv2
 import segmentation_models as sm
 import os
@@ -23,38 +24,68 @@ def test_U_net_estimation(X_test, n_classes):
 def dicom_segmentation(path_original, size, n_clases):
     SIZE_X, SIZE_Y = size
     arr_original = []
-    ds = None
+    ds_valids = []  # ← lista paralela para guardar los datasets que sí se usaron
     img_size = None
 
     directory_path = path_original
-    for img_path in glob.glob(os.path.join(directory_path, '*')):
+    valid_paths = []  # ← guardamos solo los paths válidos (útil si quieres devolverlos al frontend)
+
+        #  ESTA PARTE estaba fuera de la función. Debe estar indentada dentro.
+    files = glob.glob(os.path.join(directory_path, '*'))
+    print(f"[INFO] Archivos encontrados en carpeta: {len(files)}")
+
+    for img_path in files:
         if not os.path.isfile(img_path):
-            continue
-        try:
-            ds = pd.dcmread(img_path)
-        except:
+            print(f"[SKIP] {os.path.basename(img_path)} no es un archivo regular (posible carpeta u otro tipo)")
             continue
 
-        img = ds.pixel_array
-        img_size = img.shape
-        rescale_intercept = int(ds.RescaleIntercept)
+        # Advertencia, pero no filtramos
+        if not is_dicom(img_path):
+            print(f"[WARNING] {os.path.basename(img_path)} no parece tener encabezado DICOM estándar (pero intentaremos leerlo igual)")
+
+        try:
+            ds = pd.dcmread(img_path, force=True)
+            print(f"[OK] Procesando archivo DICOM: {os.path.basename(img_path)}")
+
+            # Validación de contenido
+            if not hasattr(ds, "PixelData") or ds.get("PixelData") is None or ds.get("Rows") is None:
+                print(f"[SKIP] {os.path.basename(img_path)} no contiene imagen válida (sin PixelData o Rows)")
+                continue
+
+            img = ds.pixel_array
+
+        except Exception as e:
+            print(f"[ERROR] Fallo al leer {os.path.basename(img_path)}: {e}")
+            continue
+
+        # Procesamiento
+        if img_size is None:
+            img_size = img.shape
+
+        rescale_intercept = int(getattr(ds, "RescaleIntercept", 0))
         img = img + rescale_intercept
         img = np.clip(img, -1000, 250)
         img = img + 1000
         img = img.astype(np.uint16)
         img_resized = cv2.resize(img, [SIZE_X, SIZE_Y])
+
         arr_original.append(img_resized)
+        ds_valids.append(ds)
+        valid_paths.append(img_path)
 
     if len(arr_original) == 0:
         raise ValueError(f"No se encontraron imágenes DICOM en: {path_original}")
 
     arr_original = np.array(arr_original)
-    
+
+    # Usar el primer dataset válido como referencia para los metadatos
+    ds_ref = ds_valids[0]
     pixel_relation = img_size[0] / SIZE_X
-    original_pixel_spacing = ds.PixelSpacing  # mm/pixel
+    original_pixel_spacing = ds_ref.PixelSpacing
     pixelen = original_pixel_spacing[0] * pixel_relation
     pixelarea = pixelen * pixelen
-    slice_thickness = float(ds.SpacingBetweenSlices) if "SpacingBetweenSlices" in ds else 10
+    slice_thickness = float(getattr(ds_ref, "SpacingBetweenSlices", 10))
+
 
     #  Loggear valores clave
     print("\n========== [INFO] Parámetros de cálculo de volumen ==========")
@@ -111,6 +142,8 @@ def dicom_segmentation(path_original, size, n_clases):
         json_lung_simplified = simplify_contours(contours_lung)
         json_fibrosis_simplified = simplify_contours(contours_fibrosis)
 
+        # json_index = idx + 1  # para iniciar en 1
+        # with open(os.path.join(output_dir, f"mask_{json_index:03d}.json"), 'w') as f:
         with open(os.path.join(output_dir, f"mask_{idx:03d}.json"), 'w') as f:
             json.dump({"lung": json_lung, "fibrosis": json_fibrosis}, f, indent=2)
 
@@ -120,6 +153,7 @@ def dicom_segmentation(path_original, size, n_clases):
                 "fibrosis_editable": json_fibrosis_simplified
             }, indent=2)
             json.loads(json_str)  # validación rápida del contenido
+            # with open(os.path.join(output_dir, f"mask_{json_index:03d}_simplified.json"), 'w') as f:
             with open(os.path.join(output_dir, f"mask_{idx:03d}_simplified.json"), 'w') as f:
                 f.write(json_str)
         except Exception as e:
@@ -157,3 +191,9 @@ def dicom_segmentation(path_original, size, n_clases):
             imagej=True,
             resolution=(1 / pixelarea, 1 / pixelarea),
             metadata={'spacing': slice_thickness, 'unit': 'mm', 'axes': 'ZYX'})
+    
+    valid_index_map = {i: os.path.basename(path) for i, path in enumerate(valid_paths)}
+    with open(os.path.join(output_dir, "valid_indices.json"), 'w') as f:
+        json.dump(valid_index_map, f, indent=2)
+    print(f"Archivo valid_indices.json guardado en: {os.path.join(output_dir, 'valid_indices.json')}")
+
