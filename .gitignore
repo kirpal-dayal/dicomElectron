@@ -44,3 +44,8 @@ dist/mac/
 dist/linux/
 app.asar
 app.asar.unpacked/
+
+#python
+# Para ignorar todas las carpetas __pycache__ en cualquier subdirectorio del repositorio
+**/__pycache__/
+venv_mod/
