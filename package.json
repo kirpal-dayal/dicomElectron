@@ -1,5 +1,6 @@
 {
   "dependencies": {
+    "@kitware/vtk.js": "^34.0.0",
     "adm-zip": "^0.5.16",
     "axios": "^1.8.4",
     "child_process": "^1.0.2",

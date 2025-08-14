@@ -49,3 +49,6 @@ app.asar.unpacked/
 # Para ignorar todas las carpetas __pycache__ en cualquier subdirectorio del repositorio
 **/__pycache__/
 venv_mod/
+
+# Poner los recursos de mask02 estaticos para luego cambiarlos y recuperarlos desde la BD
+public/mask02/

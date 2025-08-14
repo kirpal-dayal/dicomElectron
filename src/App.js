@@ -9,6 +9,7 @@ import AnalisisDetallado from './components/AnalisisDetallado'; // Nueva vista
 import StudyView from './components/StudyView'; // Nueva vista de estudio
 
 import './App.css';
+import RenderPulmon from './components/RenderPulmon';
 
 function App() {
   return (
@@ -26,6 +27,7 @@ function App() {
         <Route path="/estudio/:id/:studyNumber" element={<StudyView />} /> {/* infopaciente>studyview */}
         {/* 🔹 Nueva ruta para análisis detallado */}
         <Route path="/analisis-detallado/:id" element={<AnalisisDetallado />} />
+        <Route path="/render-pulmon/" element={<RenderPulmon />} />
       </Routes>
     </Router>
   );
