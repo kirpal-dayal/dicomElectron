@@ -279,6 +279,9 @@ export default function ViewPatient() {
             <button className="btn" onClick={() => navigate(`/analisis-detallado/${record.nss}`)}>
               Comparar volúmenes
             </button>
+            <button className="btn" onClick={() => navigate(`/render-pulmon/`)}>
+              Comparar volúmenes VTK
+            </button>
           </div>
         </section>
       </div>
