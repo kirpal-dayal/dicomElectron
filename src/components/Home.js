@@ -3,6 +3,9 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 
+import { loadMaskFiles } from '../utils/loadMaskfiles';
+import VTKVolumeViewer from './VTKVolumeViewer';
+
 export default function Home() {
   const [form, setForm]           = useState({ id: '', password: '' });
   const [errors, setErrors]       = useState({});
@@ -11,6 +14,19 @@ export default function Home() {
   const navigate = useNavigate();
 
   const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+
+  const [isLungRenderVisible, setIsLungRenderVisible] = useState(false);
+  let lungVolArr, fibroVolArr, dims;
+   const handleShowLungRender = () => {
+    console.log("entro a handleShowLungRender");
+    [lungVolArr, fibroVolArr, dims] = loadMaskFiles('jeje');
+    console.log("Se recuperaron los volumenes")
+    setIsLungRenderVisible(true);
+    console.log("Se concluye con exito handleShowLungRender")
+  };
+  const handleBackOrigin = () => {
+    setIsLungRenderVisible(false);
+  };
 
   const handleChange = ({ target: { name, value } }) => {
     setForm(f => ({ ...f, [name]: value }));
@@ -60,7 +76,16 @@ export default function Home() {
   };
 
   return (
-    <>
+    <div style={{ width: '100%', height: '100%' }}>
+      {isLungRenderVisible ? (
+        <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }}>
+          <VTKVolumeViewer  volumeArray={lungVolArr} fibrosisVolArr={fibroVolArr} dims={dims} />
+          <button onClick={handleBackOrigin} style={{ position: 'absolute', top: 20, right: 20 }}>
+            Volver a A
+          </button>
+        </div>
+      ) : (
+        <>
       <style>{`
         .home-container {
           min-height: 100vh;
@@ -168,7 +193,12 @@ export default function Home() {
             {loading ? 'Verificando...' : 'Iniciar Sesión'}
           </button>
         </form>
+        <button className="btn" onClick={handleShowLungRender}>
+              Comparar volúmenes VTK
+            </button>
       </div>
     </>
+      )}
+    </div>
   );
 }
