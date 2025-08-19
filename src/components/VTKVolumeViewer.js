@@ -9,10 +9,17 @@ import '@kitware/vtk.js/Rendering/Profiles/Geometry'; // Permite usar setScalars
 
 import vtkFullScreenRenderWindow from '@kitware/vtk.js/Rendering/Misc/FullScreenRenderWindow';
 
-export default function VTKVolumeViewer({ volumeArray, fibrosisVolArr, dims }) {
+export default function VTKVolumeViewer({ data }) {
   const vtkContainerRef = useRef(null);
   const context = useRef(null);
   const containerRef = useRef();
+
+  // Extract data from props
+  const lungVolArr = data?.[0];
+  const fibroVolArr = data?.[1];
+  const dims = data?.[2];
+
+
 
   function controlActorStyle(actor, RGBcolor, opacity) {
     const propertyActor = actor.getProperty();
@@ -30,13 +37,17 @@ export default function VTKVolumeViewer({ volumeArray, fibrosisVolArr, dims }) {
       const fullScreenRenderer = vtkFullScreenRenderWindow.newInstance({
         rootContainer: vtkContainerRef.current,
       });
-      function createActor(data, RGBcolor, opacity) { //Declared inside useEffect to avoid "React Hook useEffect has a missing dependency", because doesn't need to be accesible outside
-        const [width, height, depth] = dims;
+      function createActor(volumeData, dimensions, RGBcolor, opacity) { //Declared inside useEffect to avoid "React Hook useEffect has a missing dependency", because doesn't need to be accesible outside
+        //console.log("los datos 1 VTK son:" + dims);
+        const [width, height, depth] = dimensions;
+        //const [width, height, depth] = data;
+        console.log("los datos son:", width, height, depth);
+
         const imageData = vtkImageData.newInstance();
         imageData.setDimensions(width, height, depth);
         const scalars = vtkDataArray.newInstance({
           numberOfComponents: 1, // Indica cuántos valores forman cada elemento del array de datos. Si es 1, cada voxel/píxel tiene un solo valor (por ejemplo, intensidad o máscara binaria). Si es 3, cada voxel/píxel tiene tres valores (por ejemplo, un color RGB).
-          values: data, // Asegúrate de que data sea un TypedArray (como Float32Array)
+          values: volumeData, // Asegúrate de que data sea un TypedArray (como Float32Array)
         });
         imageData.getPointData().setScalars(scalars);
         const mcFilter = vtkMarchingCubes.newInstance({
@@ -53,8 +64,8 @@ export default function VTKVolumeViewer({ volumeArray, fibrosisVolArr, dims }) {
         controlActorStyle(actor, RGBcolor, opacity);
         return [actor, mapper];
       }
-      const [lungActor, lungMapper] = createActor(volumeArray, 'g', 0.15);
-      const [fibroActor, fibroMapper] = createActor(fibrosisVolArr, 'r', 0.4);
+      const [lungActor, lungMapper] = createActor(lungVolArr, dims, 'g', 0.15);
+      const [fibroActor, fibroMapper] = createActor(fibroVolArr, dims, 'r', 0.4);
 
       const renderer = fullScreenRenderer.getRenderer();
       const renderWindow = fullScreenRenderer.getRenderWindow();
@@ -99,7 +110,7 @@ export default function VTKVolumeViewer({ volumeArray, fibrosisVolArr, dims }) {
         context.current = null;
       }
     };
-  }, [volumeArray, fibrosisVolArr, dims]);
+  }, [lungVolArr, fibroVolArr, dims]);
 
   return <div ref={containerRef} style={{ width: '600px', height: '600px' }} />;
 }
