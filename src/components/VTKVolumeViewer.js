@@ -31,6 +31,7 @@ export default function VTKVolumeViewer({ volumeArray, fibrosisVolArr, dims }) {
         rootContainer: vtkContainerRef.current,
       });
       function createActor(data, RGBcolor, opacity) { //Declared inside useEffect to avoid "React Hook useEffect has a missing dependency", because doesn't need to be accesible outside
+        console.log('antes de dims is not iterable?');
         const [width, height, depth] = dims;
         const imageData = vtkImageData.newInstance();
         imageData.setDimensions(width, height, depth);
@@ -84,6 +85,7 @@ export default function VTKVolumeViewer({ volumeArray, fibrosisVolArr, dims }) {
         renderer,
       };
     }
+    /*
     return () => {
       if (context.current) {
         const { fullScreenRenderer, lungActor, lungMapper, fibroActor, fibroMapper, openGLRenderWindow, renderWindow, renderer } = context.current;
@@ -97,6 +99,21 @@ export default function VTKVolumeViewer({ volumeArray, fibrosisVolArr, dims }) {
         renderWindow.delete();
         renderer.delete();
         context.current = null;
+      }
+    };*/
+    // LIMPIEZA ROBUSTA
+    return () => {
+      console.log('la limpieza se esta ejecutando');
+      if (context.current) {
+        // Elimina todos los actores, renderers, windows, etc.
+        Object.values(context.current).forEach(obj => {
+          if (obj && typeof obj.delete === 'function') obj.delete();
+        });
+        context.current = null;
+      }
+      // Limpieza manual de listeners
+      if (containerRef.current) {
+        containerRef.current.replaceWith(containerRef.current.cloneNode(true));
       }
     };
   }, [volumeArray, fibrosisVolArr, dims]);

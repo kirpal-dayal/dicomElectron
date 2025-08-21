@@ -32,10 +32,14 @@ import axios from "axios";
 import cornerstone from "cornerstone-core";
 import cornerstoneWADOImageLoader from "cornerstone-wado-image-loader";
 import dicomParser from "dicom-parser";
+
+import VTKVolumeViewer from "./VTKVolumeViewer";
+import { loadMaskFiles } from "../utils/loadMaskfiles";
+
 // Configuración necesaria para que cornerstone pueda interpretar imágenes DICOM desde URLs, despues integra con bd?
 cornerstoneWADOImageLoader.external.cornerstone = cornerstone;
 cornerstoneWADOImageLoader.external.dicomParser = dicomParser;
-cornerstoneWADOImageLoader.configure({ beforeSend: () => {} });
+cornerstoneWADOImageLoader.configure({ beforeSend: () => { } });
 // Componente para renderizar una miniatura DICOM con Cornerstone
 function DicomThumbnail({ imageId }) {
   const elementRef = useRef(null);
@@ -84,7 +88,34 @@ export default function ViewPatient() {
   const [record, setRecord] = useState(null); // Almacena la información completa del paciente
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-// Función que consulta el backend y prepara los estudios con sus miniaturas
+
+  const [isLungRenderVisible, setLungRenderVisible] = useState(false);
+  // ✅ Agregar estado para los datos del visor VTK
+  const [lungVolArr, setLungVolArr] = useState(null);
+  const [fibroVolArr, setFibroVolArr] = useState(null);
+  const [dims, setDims] = useState(null);
+
+  const handleShowLungRender = async () => {
+    try {
+      console.log("se intenta leer los archivos");
+      const [lungVol, fibroVol, dimensions] = await loadMaskFiles("nada");
+      console.log("se leyeron los archivos");
+      
+      // ✅ Actualizar el estado con los datos cargados
+      setLungVolArr(lungVol);
+      setFibroVolArr(fibroVol);
+      setDims(dimensions);
+      setLungRenderVisible(true);
+    }
+    catch (error) {
+      console.log('Error loading mask files');
+    }
+  }
+  const handleBackOrigin = () => {
+    setLungRenderVisible(false);
+  }
+
+  // Función que consulta el backend y prepara los estudios con sus miniaturas
   const fetchRecord = async () => {
     try {
       setLoading(true);
@@ -158,133 +189,158 @@ export default function ViewPatient() {
     return <div style={{ padding: "2rem", textAlign: "center", color: "red" }}>{error || "Error desconocido"}</div>;
 
   return (
-    <div style={{ display: "flex", padding: "2rem", gap: "2rem" }}>
-      {/* PANEL IZQUIERDO */}
-      <div style={{ flex: "1", maxWidth: "350px" }}>
-        <section className="card">
-          <h2>Información del Paciente</h2>
-          <div className="form-group">
-            <label>NSS</label>
-            <input value={record.nss} disabled />
-          </div>
-          <div className="form-group">
-            <label>Fecha de Nacimiento</label>
-            <input
-              type="date"
-              value={new Date(record.fecha_nacimiento).toISOString().split("T")[0]}
-              disabled
-            />
-          </div>
-          <div className="form-group">
-            <label>Sexo</label>
-            <input
-              value={record.sexo === 1 ? "Hombre" : record.sexo === 2 ? "Mujer" : "Otro"}
-              disabled
-            />
-          </div>
-          <div className="actions">
-            <button className="btn" onClick={() => navigate(-1)}>
-              Volver
-            </button>
-          </div>
-        </section>
-      </div>
+    <div>
+      {isLungRenderVisible ? (
+        <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+    <VTKVolumeViewer volumeArray={lungVolArr} fibrosisVolArr={fibroVolArr} dims={dims} />
+    <button
+      onClick={handleBackOrigin}
+      style={{
+        position: 'absolute',
+        top: 20,
+        right: 20,
+        zIndex: 10,
+        background: '#2563eb',
+        color: '#fff',
+        border: 'none',
+        borderRadius: '4px',
+        padding: '0.5rem 1rem',
+        fontWeight: 'bold',
+        cursor: 'pointer'
+      }}
+    >
+      Volver
+    </button>
+  </div>
+      ) :
+        (/* PANEL IZQUIERDO */
+          <div style={{ display: "flex", padding: "2rem", gap: "2rem" }}>
+            <div style={{ flex: "1", maxWidth: "350px" }}>
+              <section className="card">
+                <h2>Información del Paciente</h2>
+                <div className="form-group">
+                  <label>NSS</label>
+                  <input value={record.nss} disabled />
+                </div>
+                <div className="form-group">
+                  <label>Fecha de Nacimiento</label>
+                  <input
+                    type="date"
+                    value={new Date(record.fecha_nacimiento).toISOString().split("T")[0]}
+                    disabled
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Sexo</label>
+                  <input
+                    value={record.sexo === 1 ? "Hombre" : record.sexo === 2 ? "Mujer" : "Otro"}
+                    disabled
+                  />
+                </div>
+                <div className="actions">
+                  <button className="btn" onClick={() => navigate(-1)}>
+                    Volver
+                  </button>
+                </div>
+              </section>
+            </div>
 
-      {/* PANEL DERECHO */}
-      <div style={{ flex: "3" }}>
-        <section className="card">
-          <h2>Estudios ({record.studies.length})</h2>
+            {/* PANEL DERECHO */}
+            <div style={{ flex: "3" }}>
+              <section className="card">
+                <h2>Estudios ({record.studies.length})</h2>
 
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))",
-              gap: "1rem",
-              marginTop: "1rem",
-            }}
-          >
-            {record.studies.map((s, i) => (
-              <div
-                key={i}
-                className="grid-item"
-                onClick={() =>
-                  navigate(`/estudio/${record.nss}/${encodeURIComponent(toSQLDateString(s.fecha))}`)
-                }
-                style={{
-                  cursor: "pointer",
-                  background: "#fff",
-                  border: "1px solid #ddd",
-                  borderRadius: "8px",
-                  padding: "1rem",
-                  textAlign: "center",
-                  transition: "box-shadow 0.2s",
-                }}
-              >
-                {s.dicomUrl ? (
-                  <DicomThumbnail imageId={s.dicomUrl} />
-                ) : (
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))",
+                    gap: "1rem",
+                    marginTop: "1rem",
+                  }}
+                >
+                  {record.studies.map((s, i) => (
+                    <div
+                      key={i}
+                      className="grid-item"
+                      onClick={() =>
+                        navigate(`/estudio/${record.nss}/${encodeURIComponent(toSQLDateString(s.fecha))}`)
+                      }
+                      style={{
+                        cursor: "pointer",
+                        background: "#fff",
+                        border: "1px solid #ddd",
+                        borderRadius: "8px",
+                        padding: "1rem",
+                        textAlign: "center",
+                        transition: "box-shadow 0.2s",
+                      }}
+                    >
+                      {s.dicomUrl ? (
+                        <DicomThumbnail imageId={s.dicomUrl} />
+                      ) : (
+                        <div
+                          style={{
+                            width: "160px",
+                            height: "160px",
+                            backgroundColor: "#eee",
+                            display: "flex",
+                            justifyContent: "center",
+                            alignItems: "center",
+                            color: "#666",
+                            fontWeight: "bold",
+                            borderRadius: "6px",
+                            margin: "0 auto",
+                          }}
+                        >
+                          Sin imagen
+                        </div>
+                      )}
+                      <p><strong>Fecha:</strong> {new Date(s.fecha).toLocaleString()}</p>
+                      <p><strong>Descripción:</strong> {s.descripcion || '-'}</p>
+                    </div>
+                  ))}
+
+                  {/* BOTÓN DE SUBIDA COMO TARJETA */}
                   <div
+                    className="grid-item upload-card"
+                    onClick={() => document.getElementById("zip-upload").click()}
                     style={{
-                      width: "160px",
-                      height: "160px",
-                      backgroundColor: "#eee",
+                      background: "#fff",
+                      border: "1px dashed #007bff",
+                      borderRadius: "8px",
+                      padding: "1rem",
+                      textAlign: "center",
+                      cursor: "pointer",
                       display: "flex",
-                      justifyContent: "center",
+                      flexDirection: "column",
                       alignItems: "center",
-                      color: "#666",
-                      fontWeight: "bold",
-                      borderRadius: "6px",
-                      margin: "0 auto",
+                      justifyContent: "center",
                     }}
                   >
-                    Sin imagen
+                    <FaCloudUploadAlt size={50} color="#007bff" />
+                    <p style={{ fontWeight: "bold", marginTop: "0.5rem" }}>Agregar nuevo estudio</p>
+                    <p style={{ fontSize: "0.85rem", color: "#666" }}>.zip con DICOMs</p>
+                    <input
+                      id="zip-upload"
+                      type="file"
+                      accept=".zip"
+                      style={{ display: "none" }}
+                      onChange={handleZipChange}
+                    />
                   </div>
-                )}
-                <p><strong>Fecha:</strong> {new Date(s.fecha).toLocaleString()}</p>
-                <p><strong>Descripción:</strong> {s.descripcion || '-'}</p>
-              </div>
-            ))}
+                </div>
 
-            {/* BOTÓN DE SUBIDA COMO TARJETA */}
-            <div
-              className="grid-item upload-card"
-              onClick={() => document.getElementById("zip-upload").click()}
-              style={{
-                background: "#fff",
-                border: "1px dashed #007bff",
-                borderRadius: "8px",
-                padding: "1rem",
-                textAlign: "center",
-                cursor: "pointer",
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              <FaCloudUploadAlt size={50} color="#007bff" />
-              <p style={{ fontWeight: "bold", marginTop: "0.5rem" }}>Agregar nuevo estudio</p>
-              <p style={{ fontSize: "0.85rem", color: "#666" }}>.zip con DICOMs</p>
-              <input
-                id="zip-upload"
-                type="file"
-                accept=".zip"
-                style={{ display: "none" }}
-                onChange={handleZipChange}
-              />
+                <div className="actions" style={{ marginTop: "2rem" }}>
+                  <button className="btn" onClick={() => navigate(`/analisis-detallado/${record.nss}`)}>
+                    Comparar volúmenes
+                  </button>
+                  <button className="btn" onClick={handleShowLungRender}>
+                    Comparar volúmenes VTK
+                  </button>
+                </div>
+              </section>
             </div>
-          </div>
-
-          <div className="actions" style={{ marginTop: "2rem" }}>
-            <button className="btn" onClick={() => navigate(`/analisis-detallado/${record.nss}`)}>
-              Comparar volúmenes
-            </button>
-            <button className="btn" onClick={() => navigate(`/render-pulmon/`)}>
-              Comparar volúmenes VTK
-            </button>
-          </div>
-        </section>
-      </div>
+          </div>)}
     </div>
   );
 }
