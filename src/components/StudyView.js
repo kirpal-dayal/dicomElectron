@@ -688,7 +688,7 @@ const handleOverlayClick = (e) => {
       <button className="btn" onClick={() => setSelectedIndex(null)}>Cerrar</button>
     </div>
 
-    <div style={{ marginBottom: "1rem" }}>
+    {/* <div style={{ marginBottom: "1rem" }}>
       <button
         className="btn"
         onClick={() => {
@@ -708,7 +708,7 @@ const handleOverlayClick = (e) => {
       >
         Limpiar capa activa
       </button>
-    </div>
+    </div> */}
 
     {volumenes && (
       <div style={{ color: "#fff", marginBottom: "1rem" }}>
@@ -717,7 +717,7 @@ const handleOverlayClick = (e) => {
         <div><strong>Total:</strong> {volumenes.total_volume_ml} ml</div>
       </div>
     )}
-    {editableVolumen && (
+    {/* {editableVolumen && (
       <div style={{ color: "#fff", marginBottom: "1rem" }}>
         <div><strong>Edit. pulmón:</strong> {editableVolumen.editableLungVolume} ml</div>
         <div><strong>Edit. fibrosis:</strong> {editableVolumen.editableFibrosisVolume} ml</div>
@@ -725,7 +725,7 @@ const handleOverlayClick = (e) => {
           editableVolumen.editableLungVolume + editableVolumen.editableFibrosisVolume
         ).toFixed(2)} ml</div>
       </div>
-    )}
+    )} */}
 
     <div>
       <label style={{ color: "#fff" }}>Zoom:</label>
