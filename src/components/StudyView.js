@@ -65,7 +65,12 @@ export default function StudyView() {
   const [error, setError] = useState("");
   const [selectedLayerIndex, setSelectedLayerIndex] = useState(0); // index de la capa activa
   const [wasDragging, setWasDragging] = useState(false);
-  const [pixelSpacing, setPixelSpacing] = useState(null);
+
+  const [dicomSpacing, setDicomSpacing] = useState({ row: 1, col: 1, slice: 1 }); // mm
+  const [dims3D, setDims3D] = useState([0, 0, 0]); // [width(cols), height(rows), depth(slices)]
+
+
+  // const [pixelSpacing, setPixelSpacing] = useState(null);
   const [originalContours, setOriginalContours] = useState([]); // Solo para mostrar las coordinadas originales del modelo, no se uso alch
   const [editableContours, setEditableContours] = useState([]); // Editable por el usuario coordinadas copia
   const [totalArea, setTotalArea] = useState(0);
@@ -116,28 +121,53 @@ export default function StudyView() {
   
       const imageId = `wadouri:${window.location.origin}${dicomList[selectedIndex]}`;
   
-      cornerstone.loadAndCacheImage(imageId).then(image => {
-        cornerstone.displayImage(element, image);
-        const viewport = cornerstone.getDefaultViewportForImage(element, image);
-        viewport.scale = scale;
-        cornerstone.setViewport(element, viewport);
-        drawOverlayLines();
-      }).catch(err => {
-        console.error("Error al cargar imagen:", err);
-      });
+      cornerstone.loadAndCacheImage(imageId)
+        .then(image => {
+          cornerstone.displayImage(element, image);
+
+          // 👇 EXTRAER SPACING/SIZE AQUÍ (dentro del .then!)
+          const { pixelSpacing, sliceThickness } = extractSpacingFromImage(image);
+
+          // spacing para VTK: [X=col, Y=row, Z=slice]
+          const spacingArr = [
+            parseFloat(pixelSpacing?.col ?? pixelSpacing?.x ?? 1) || 1,
+            parseFloat(pixelSpacing?.row ?? pixelSpacing?.y ?? 1) || 1,
+            parseFloat(sliceThickness ?? image?.data?.string?.('x00180050') ?? 1) || 1,
+          ];
+
+          // dims para VTK: [cols, rows, slices]
+          const dimsArr = [
+            image?.columns || image?.width || 0,
+            image?.rows || image?.height || 0,
+            dicomList.length || 0,
+          ];
+
+          // Guardar en estado (útil si después quieres abrir el 3D con esto)
+          setDicomSpacing({ row: spacingArr[1], col: spacingArr[0], slice: spacingArr[2] });
+          setDims3D(dimsArr);
+
+          // LOG claro para depurar
+          console.log('[DICOM] Spacing mm ->', {
+            col_mm: spacingArr[0],
+            row_mm: spacingArr[1],
+            slice_mm: spacingArr[2],
+            rawPixelSpacing: pixelSpacing,
+            rawSliceThickness: sliceThickness,
+          });
+          console.log('[DICOM] Dims ->', { columns: dimsArr[0], rows: dimsArr[1], slices: dimsArr[2] });
+
+          const viewport = cornerstone.getDefaultViewportForImage(element, image);
+          viewport.scale = scale;
+          cornerstone.setViewport(element, viewport);
+          drawOverlayLines();
+        })
+        .catch(err => {
+          console.error("Error al cargar imagen:", err);
+        });
+
     } catch (err) {
       console.error("Error inesperado en displayImage:", err);
     }
-  // No deshabilites automáticamente en el return si estás reutilizando el viewerRef
-    // return () => {
-    //   if (cornerstone.getEnabledElement(element)) {
-    //     try {
-    //       cornerstone.disable(element);
-    //     } catch (e) {
-    //       console.warn("No se pudo deshabilitar el elemento:", e);
-    //     }
-    //   }
-    // };
   }, [selectedIndex, dicomList, scale]);
   
   //redibuje cada vez que cambie layers o scale
