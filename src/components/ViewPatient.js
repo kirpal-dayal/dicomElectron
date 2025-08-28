@@ -330,17 +330,20 @@ export default function ViewPatient() {
                   </div>
                 </div>
 
-                <div className="actions" style={{ marginTop: "2rem" }}>
-                  <button className="btn" onClick={() => navigate(`/analisis-detallado/${record.nss}`)}>
-                    Comparar volúmenes
-                  </button>
-                  <button className="btn" onClick={handleShowLungRender}>
-                    Comparar volúmenes VTK
-                  </button>
-                </div>
-              </section>
-            </div>
-          </div>)}
+          <div className="actions" style={{ marginTop: "2rem" }}>
+            <button className="btn" onClick={() => navigate(`/analisis-detallado/${record.nss}`)}>
+              Comparar volúmenes
+            </button>
+<button
+  className="btn"
+  onClick={() => navigate(`/render-pulmon?nss=${encodeURIComponent(record.nss)}`)}
+>
+  Comparar volúmenes VTK
+</button>
+
+          </div>
+        </section>
+      </div>
     </div>
   );
 }
