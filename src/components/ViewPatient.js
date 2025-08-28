@@ -100,7 +100,7 @@ export default function ViewPatient() {
       console.log("se intenta leer los archivos");
       const [lungVol, fibroVol, dimensions] = await loadMaskFiles("nada");
       console.log("se leyeron los archivos");
-      
+
       // ✅ Actualizar el estado con los datos cargados
       setLungVolArr(lungVol);
       setFibroVolArr(fibroVol);
@@ -192,26 +192,26 @@ export default function ViewPatient() {
     <div>
       {isLungRenderVisible ? (
         <div style={{ position: 'relative', width: '100%', height: '100%' }}>
-    <VTKVolumeViewer volumeArray={lungVolArr} fibrosisVolArr={fibroVolArr} dims={dims} />
-    <button
-      onClick={handleBackOrigin}
-      style={{
-        position: 'absolute',
-        top: 20,
-        right: 20,
-        zIndex: 10,
-        background: '#2563eb',
-        color: '#fff',
-        border: 'none',
-        borderRadius: '4px',
-        padding: '0.5rem 1rem',
-        fontWeight: 'bold',
-        cursor: 'pointer'
-      }}
-    >
-      Volver
-    </button>
-  </div>
+          <VTKVolumeViewer volumeArray={lungVolArr} fibrosisVolArr={fibroVolArr} dims={dims} />
+          <button
+            onClick={handleBackOrigin}
+            style={{
+              position: 'absolute',
+              top: 20,
+              right: 20,
+              zIndex: 10,
+              background: '#2563eb',
+              color: '#fff',
+              border: 'none',
+              borderRadius: '4px',
+              padding: '0.5rem 1rem',
+              fontWeight: 'bold',
+              cursor: 'pointer'
+            }}
+          >
+            Volver
+          </button>
+        </div>
       ) :
         (/* PANEL IZQUIERDO */
           <div style={{ display: "flex", padding: "2rem", gap: "2rem" }}>
@@ -330,20 +330,23 @@ export default function ViewPatient() {
                   </div>
                 </div>
 
-          <div className="actions" style={{ marginTop: "2rem" }}>
-            <button className="btn" onClick={() => navigate(`/analisis-detallado/${record.nss}`)}>
-              Comparar volúmenes
-            </button>
-<button
-  className="btn"
-  onClick={() => navigate(`/render-pulmon?nss=${encodeURIComponent(record.nss)}`)}
->
-  Comparar volúmenes VTK
-</button>
+                <div className="actions" style={{ marginTop: "2rem" }}>
+                  <button className="btn" onClick={() => navigate(`/analisis-detallado/${record.nss}`)}>
+                    Comparar volúmenes
+                  </button>
+                  <button
+                    className="btn"
+                    onClick={() => navigate(`/render-pulmon?nss=${encodeURIComponent(record.nss)}`)}
+                  >
+                    Comparar volúmenes VTK
+                  </button>
 
+                </div>
+              </section>
+            </div>
           </div>
-        </section>
-      </div>
+        )
+      }
     </div>
   );
 }
