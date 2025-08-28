@@ -21,8 +21,6 @@ const API = {
   // Si estás leyendo polígonos desde archivos:
   validIndices: (folder)           => `http://localhost:5000/api/segment/valid-indices/${folder}`,
   maskJson:     (folder, index)    => `http://localhost:5000/api/segment/mask-json/${folder}/${index}`,
-  // Si lees desde BD, sustituye por:
-  // maskDB:    (nss, fechaSql, i)  => `http://localhost:5000/api/segment/mask-db/${nss}/${encodeURIComponent(fechaSql)}/${i}`,
 };
 
 function toSQLDateString(fecha) {
