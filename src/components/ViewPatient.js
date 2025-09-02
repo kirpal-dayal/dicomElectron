@@ -426,9 +426,18 @@ export default function ViewPatient() {
                     <p>
                       <strong>Fecha:</strong> {new Date(s.fecha).toLocaleString()}
                     </p>
-                    <p>
-                      <strong>Descripción:</strong> {s.descripcion || "-"}
-                    </p>
+                    
+                    {/* Ver (al pasar el cursor) y editar descripcion elaborada por el medico */}
+                    <button
+                      className="btn"
+                      title={s.descripcion || "-"}
+                      onClick={() =>
+                        navigate()
+                      }
+                      style={{ marginTop: 8 }}
+                    >
+                      Descripción ✏️
+                    </button>
 
                     {/* Ir al visor 2D del estudio */}
                     <button
