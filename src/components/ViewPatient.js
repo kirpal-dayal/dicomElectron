@@ -15,13 +15,14 @@ import cornerstone from "cornerstone-core";
 import cornerstoneWADOImageLoader from "cornerstone-wado-image-loader";
 import dicomParser from "dicom-parser";
 
+import DescripcionEstudio from "./modals/DescripcionEstudio";
 import VTKVolumeViewer from "./VTKVolumeViewer";
 import { loadMaskFiles } from "../utils/loadMaskfiles";
 
 // ---- Cornerstone config (WADO-URI desde backend) ----
 cornerstoneWADOImageLoader.external.cornerstone = cornerstone;
 cornerstoneWADOImageLoader.external.dicomParser = dicomParser;
-cornerstoneWADOImageLoader.configure({ beforeSend: () => {} });
+cornerstoneWADOImageLoader.configure({ beforeSend: () => { } });
 
 // Miniatura DICOM simple con Cornerstone
 function DicomThumbnail({ imageId }) {
@@ -38,19 +39,19 @@ function DicomThumbnail({ imageId }) {
       catch { return false; }
     };
 
-    if (!isEnabled()) { try { cornerstone.enable(el); } catch {} }
+    if (!isEnabled()) { try { cornerstone.enable(el); } catch { } }
 
     cornerstone
       .loadAndCacheImage(imageId)
       .then((image) => {
         if (cancelled) return;
-        try { if (isEnabled()) cornerstone.displayImage(el, image); } catch {}
+        try { if (isEnabled()) cornerstone.displayImage(el, image); } catch { }
       })
-      .catch(() => {});
+      .catch(() => { });
 
     return () => {
       cancelled = true;
-      try { if (isEnabled()) cornerstone.disable(el); } catch {}
+      try { if (isEnabled()) cornerstone.disable(el); } catch { }
     };
   }, [imageId]);
 
@@ -100,7 +101,11 @@ export default function ViewPatient() {
 
   // Metadatos físicos para pasar al demo
   const [spacing, setSpacing] = useState([1, 1, 1]);
-  const [origin, setOrigin]   = useState([0, 0, 0]);
+  const [origin, setOrigin] = useState([0, 0, 0]);
+
+  //Descripcion del estudio
+  const [showDescripcionModal, setShowDescripcionModal] = useState(false);
+  const [descripcionActual, setDescripcionActual] = useState("");
 
   //  Ocultamos estos estados comentándolos
   // const [quality, setQuality] = useState("full"); // 'full' | 'half' | 'quarter'
@@ -174,27 +179,27 @@ export default function ViewPatient() {
       const p0 = cornerstone.metaData.get('imagePlaneModule', id0) || {};
       const p1 = cornerstone.metaData.get('imagePlaneModule', id1) || {};
 
-      const sy = p0.rowPixelSpacing       ?? p0.pixelSpacing?.[0] ?? 1;
-      const sx = p0.columnPixelSpacing    ?? p0.pixelSpacing?.[1] ?? 1;
+      const sy = p0.rowPixelSpacing ?? p0.pixelSpacing?.[0] ?? 1;
+      const sx = p0.columnPixelSpacing ?? p0.pixelSpacing?.[1] ?? 1;
 
-      const rc = p0.rowCosines || p0.rowCosine || [1,0,0];
-      const cc = p0.columnCosines || p0.columnCosine || [0,1,0];
-      const n  = [
-        rc[1]*cc[2] - rc[2]*cc[1],
-        rc[2]*cc[0] - rc[0]*cc[2],
-        rc[0]*cc[1] - rc[1]*cc[0],
+      const rc = p0.rowCosines || p0.rowCosine || [1, 0, 0];
+      const cc = p0.columnCosines || p0.columnCosine || [0, 1, 0];
+      const n = [
+        rc[1] * cc[2] - rc[2] * cc[1],
+        rc[2] * cc[0] - rc[0] * cc[2],
+        rc[0] * cc[1] - rc[1] * cc[0],
       ];
 
-      const ipp0 = p0.imagePositionPatient || [0,0,0];
-      const ipp1 = p1.imagePositionPatient || [0,0,0];
-      const d = [ ipp1[0]-ipp0[0], ipp1[1]-ipp0[1], ipp1[2]-ipp0[2] ];
-      const sz_from_ipp = Math.abs(d[0]*n[0] + d[1]*n[1] + d[2]*n[2]) || 1;
+      const ipp0 = p0.imagePositionPatient || [0, 0, 0];
+      const ipp1 = p1.imagePositionPatient || [0, 0, 0];
+      const d = [ipp1[0] - ipp0[0], ipp1[1] - ipp0[1], ipp1[2] - ipp0[2]];
+      const sz_from_ipp = Math.abs(d[0] * n[0] + d[1] * n[1] + d[2] * n[2]) || 1;
 
       const origin = ipp0;
       const spacing = [sx, sy, sz_from_ipp];
 
       console.log("[DEMO 3D] Spacing calculado con IPP/IOP:", spacing, "Origin:", origin,
-                  "SliceThickness:", p0.sliceThickness, "SpacingBetweenSlices:", p0.spacingBetweenSlices);
+        "SliceThickness:", p0.sliceThickness, "SpacingBetweenSlices:", p0.spacingBetweenSlices);
 
       return { spacing, origin };
     } catch (e) {
@@ -332,7 +337,7 @@ export default function ViewPatient() {
               spacing={spacing}
               origin={origin}
               quality="full"         //  fijo; no se muestra control
-              // onProgress={(msg) => setProgressMsg(String(msg))} //  oculto
+            // onProgress={(msg) => setProgressMsg(String(msg))} //  oculto
             />
           </div>
 
@@ -426,9 +431,19 @@ export default function ViewPatient() {
                     <p>
                       <strong>Fecha:</strong> {new Date(s.fecha).toLocaleString()}
                     </p>
-                    <p>
-                      <strong>Descripción:</strong> {s.descripcion || "-"}
-                    </p>
+
+                    {/* Ver (al pasar el cursor) y editar descripcion elaborada por el medico */}
+                    <button
+                      className="btn"
+                      title={s.descripcion || "-"}
+                      onClick={() => {
+                        setDescripcionActual(s.descripcion || "");
+                        setShowDescripcionModal(true);
+                      }}
+                      style={{ marginTop: 8 }}
+                    >
+                      Descripción ✏️
+                    </button>
 
                     {/* Ir al visor 2D del estudio */}
                     <button
@@ -507,6 +522,14 @@ export default function ViewPatient() {
                 </button>
               </div>
             </section>
+          </div>
+          <div>
+            {showDescripcionModal && (
+              <DescripcionEstudio
+                descripcion={descripcionActual}
+                onClose={() => setShowDescripcionModal(false)}
+              />
+            )}
           </div>
         </div>
       )}
