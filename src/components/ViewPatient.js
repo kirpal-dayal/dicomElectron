@@ -438,7 +438,12 @@ export default function ViewPatient() {
                       title={s.descripcion || "-"}
                       onClick={() => {
                         setDescripcionActual(s.descripcion || "");
-                        setShowDescripcionModal(true);
+                        setShowDescripcionModal({
+                          open: true,
+                          nss_expediente: record.nss,
+                          //fecha: s.fecha, //Formato ISO no compatible con MySQL
+                          fecha: toSQLDateString(s.fecha), // siempre en formato SQL
+                        });
                       }}
                       style={{ marginTop: 8 }}
                     >
@@ -527,7 +532,13 @@ export default function ViewPatient() {
             {showDescripcionModal && (
               <DescripcionEstudio
                 descripcion={descripcionActual}
-                onClose={() => setShowDescripcionModal(false)}
+                nss_expediente={showDescripcionModal.nss_expediente}
+                fecha={showDescripcionModal.fecha}
+                onClose={() => setShowDescripcionModal(false )}
+                onSave={async (desc) => {
+                  // Aquí puedes actualizar el estado local
+                  await fetchRecord(); // refresca la lista de estudios
+                }}
               />
             )}
           </div>
