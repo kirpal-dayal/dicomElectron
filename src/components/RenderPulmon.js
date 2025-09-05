@@ -10,57 +10,88 @@ import dicomParser from "dicom-parser";
 import VTKVolumeViewer from "./VTKVolumeViewer";
 import { createVolumeFromContours } from "./../utils/rasterizeContours";
 
+// --- Cornerstone + WADO config ---
 cornerstoneWADOImageLoader.external.cornerstone = cornerstone;
 cornerstoneWADOImageLoader.external.dicomParser = dicomParser;
 cornerstoneWADOImageLoader.configure({ beforeSend: () => {} });
 
+// Registra el metaDataProvider de wadouri (necesario para imagePlaneModule)
+(function ensureMetaProvider() {
+  try {
+    const provider =
+      cornerstoneWADOImageLoader?.wadouri?.metaDataProvider ||
+      cornerstoneWADOImageLoader?.metaData?.metaDataProvider;
+    if (provider) {
+      cornerstone.metaData.addProvider(provider, 9999);
+      console.info("[Cornerstone] metaDataProvider de WADO-URI registrado.");
+    } else {
+      console.warn(
+        "[Cornerstone] No se encontró wadouri.metaDataProvider; metadata puede fallar."
+      );
+    }
+  } catch (e) {
+    console.warn("[Cornerstone] Error registrando metaDataProvider:", e);
+  }
+})();
+
 const API = {
-  expediente:   (nss)              => `http://localhost:5000/api/expedientes/${nss}`,
-  dicomList:    (folder)           => `http://localhost:5000/api/image/dicom-list/${folder}`,
-  dicomFile:    (folder, file)     => `http://localhost:5000/api/image/dicom/${folder}/${file}`,
-  // Si estás leyendo polígonos desde archivos:
-  validIndices: (folder)           => `http://localhost:5000/api/segment/valid-indices/${folder}`,
-  maskJson:     (folder, index)    => `http://localhost:5000/api/segment/mask-json/${folder}/${index}`,
+  expediente:         (nss)               => `http://localhost:5000/api/expedientes/${nss}`,
+  dicomList:          (folder)            => `http://localhost:5000/api/image/dicom-list/${folder}`,
+  dicomFile:          (folder, file)      => `http://localhost:5000/api/image/dicom/${folder}/${file}`,
+  // BD (preferido)
+  maskStackByFolder:  (folder)            => `http://localhost:5000/api/segment/mask-stack-by-folder/${folder}`,
+  maskDbByFolder:     (folder, index0)    => `http://localhost:5000/api/segment/mask-db-by-folder/${folder}/${index0}`,
+  // Filesystem (fallback legacy)
+  validIndices:       (folder)            => `http://localhost:5000/api/segment/valid-indices/${folder}`,
+  maskJson:           (folder, paddedIdx) => `http://localhost:5000/api/segment/mask-json/${folder}/${paddedIdx}`,
 };
 
 function toSQLDateString(fecha) {
   if (!fecha) return "";
-  let d = typeof fecha === "string" ? new Date(fecha) : fecha;
-  if (isNaN(d)) return fecha;
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
-    d.getDate()
-  ).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(
-    d.getMinutes()
-  ).padStart(2, "0")}:${String(d.getSeconds()).padStart(2, "0")}`;
+  const d = typeof fecha === "string" ? new Date(fecha) : fecha;
+  if (isNaN(d)) return String(fecha);
+  return (
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2,"0")} ` +
+    `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}:${String(d.getSeconds()).padStart(2,"0")}`
+  );
 }
 
 function DicomThumbnail({ imageId }) {
   const elementRef = useRef(null);
   useEffect(() => {
-    if (!elementRef.current || !imageId) return;
-    try {
-      cornerstone.enable(elementRef.current);
-      cornerstone
-        .loadImage(imageId)
-        .then((image) => cornerstone.displayImage(elementRef.current, image))
-        .catch(() => {});
-    } catch {}
-    return () => {
-      if (elementRef.current) {
-        try { cornerstone.disable(elementRef.current); } catch {}
-      }
+    const el = elementRef.current;
+    if (!el || !imageId) return;
+    const isEnabled = () => {
+      try { cornerstone.getEnabledElement(el); return true; } catch { return false; }
     };
+    if (!isEnabled()) { try { cornerstone.enable(el); } catch {} }
+    cornerstone
+      .loadAndCacheImage(imageId)
+      .then((image) => { try { if (isEnabled()) cornerstone.displayImage(el, image); } catch {} })
+      .catch(() => {});
+    return () => { try { if (isEnabled()) cornerstone.disable(el); } catch {} };
   }, [imageId]);
-  return (
-    <div ref={elementRef} style={{ width: 160, height: 160, background: "black", borderRadius: 6, margin: "0 auto" }} />
-  );
+  return <div ref={elementRef} style={{ width:160, height:160, background:"black", borderRadius:6, margin:"0 auto" }} />;
 }
 
 function extractSlicePolygons(json) {
-  const lungPolys     = json?.lung_editable ?? json?.lung ?? [];
-  const fibrosisPolys = json?.fibrosis_editable ?? json?.fibrosis ?? [];
-  return { lung: Array.isArray(lungPolys) ? lungPolys : [], fibrosis: Array.isArray(fibrosisPolys) ? fibrosisPolys : [] };
+  if (!json || typeof json !== "object") return { lung: [], fibrosis: [] };
+  const lung     = json.lung_editable ?? json.lung ?? [];
+  const fibrosis = json.fibrosis_editable ?? json.fibrosis ?? [];
+  return {
+    lung: Array.isArray(lung) ? lung : [],
+    fibrosis: Array.isArray(fibrosis) ? fibrosis : [],
+  };
 }
+
+function padToLength(arr, length, filler) {
+  const out = arr.slice();
+  while (out.length < length) out.push(typeof filler === "function" ? filler() : filler);
+  return out.slice(0, length);
+}
+
+const naturalSort = (a, b) =>
+  String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: "base" });
 
 export default function RenderPulmon() {
   const navigate = useNavigate();
@@ -69,10 +100,8 @@ export default function RenderPulmon() {
   const [nss, setNss] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-
   const [record, setRecord] = useState(null);
 
-  // overlay VTK
   const [open3D, setOpen3D] = useState(false);
   const [vtkData, setVtkData] = useState({
     volumeArray: null,
@@ -80,6 +109,7 @@ export default function RenderPulmon() {
     dims: [0, 0, 0],
     spacing: [1, 1, 1],
     origin: [0, 0, 0],
+    quality: "full",
   });
   const [loading3D, setLoading3D] = useState(false);
   const [error3D, setError3D] = useState("");
@@ -94,133 +124,211 @@ export default function RenderPulmon() {
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const qp = params.get("nss");
-    if (!qp) return;
+    const folder = params.get("folder");
+    if (!qp || folder) return;   // si viene folder, saltamos la grilla
     fetchRecord(qp);
   }, [location.search]);
+// ¿Entramos con ?folder=... para abrir 3D directo?
+const hasFolder = React.useMemo(() => {
+  const params = new URLSearchParams(location.search);
+  return !!params.get("folder");
+}, [location.search]);
+
+ useEffect(() => {
+   const params = new URLSearchParams(location.search);
+   const folder = params.get("folder");
+   if (folder) {
+     console.info("[RenderPulmon] autoload folder:", folder);
+     open3DForStudy({ folder }); // open3DForStudy sólo usa study.folder
+ }
+ }, [location.search]);
+
 
   const fetchRecord = async (nssValue) => {
+    console.groupCollapsed("[RenderPulmon] fetchRecord");
+    console.log("nss:", nssValue);
     try {
       setLoading(true);
       setError("");
       const { data: exp } = await axios.get(API.expediente(nssValue));
+      console.log("expediente:", exp);
+
       const studiesWithThumbs = await Promise.all(
         (exp.studies || []).map(async (s) => {
           const safeFecha = toSQLDateString(s.fecha).replace(/[: ]/g, "_");
           const folder = s.folder || `${exp.nss}_${safeFecha}`;
           let dicomUrl = null;
           try {
-            const files = (await axios.get(API.dicomList(folder))).data;
+            let files = (await axios.get(API.dicomList(folder))).data;
+            files = Array.isArray(files) ? files.slice().sort(naturalSort) : [];
             if (files?.length) {
               const mid = files[Math.floor(files.length / 2)];
               dicomUrl = `wadouri:${API.dicomFile(folder, mid)}`;
             }
-          } catch {}
+            console.log(`estudio folder=${folder} files=${files?.length ?? 0}`);
+          } catch (e) {
+            console.warn("dicom-list fallo:", e?.message || e);
+          }
           return { ...s, folder, dicomUrl };
         })
       );
       setRecord({ ...exp, studies: studiesWithThumbs });
     } catch (e) {
+      console.error("fetchRecord error:", e?.message || e, e?.response?.data);
       setError("No se pudo cargar el expediente o sus estudios");
     } finally {
       setLoading(false);
+      console.groupEnd();
     }
   };
 
-  // === Utilidad DICOM → spacing/origin ===
-  function cross(a, b) {
-    return [a[1]*b[2] - a[2]*b[1], a[2]*b[0] - a[0]*b[2], a[0]*b[1] - a[1]*b[0]];
-  }
-  function dot(a, b) { return a[0]*b[0] + a[1]*b[1] + a[2]*b[2]; }
+  // ==== Utilidades geométricas ====
+  const cross = (a, b) => [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]];
+  const dot   = (a, b) => a[0]*b[0] + a[1]*b[1] + a[2]*b[2];
 
   const open3DForStudy = async (study) => {
     const folder = study.folder;
+    console.groupCollapsed("[3D] open3DForStudy");
+    console.log("folder:", folder);
+
     try {
       setLoading3D(true);
       setError3D("");
       setProgress3D({ loaded: 0, total: 0 });
 
-      // 1) DICOMs del estudio
-      const files = (await axios.get(API.dicomList(folder))).data || [];
+      // 1) DICOMs → dims + spacing + origin
+      let files = (await axios.get(API.dicomList(folder))).data || [];
+      files = files.slice().sort(naturalSort);
       if (!files.length) throw new Error("El estudio no tiene DICOMs.");
-      const imageIds = files.map(f => `wadouri:${API.dicomFile(folder, f)}`);
+      const imageIds = files.map((f) => `wadouri:${API.dicomFile(folder, f)}`);
+      console.log("DICOM slices:", imageIds.length);
 
-      // Carga primero y último para metadata (asegura metaData disponible)
-      await cornerstone.loadAndCacheImage(imageIds[0]);
+      // Carga 1ª y última para asegurar metadatos
+      const imgFirst = await cornerstone.loadAndCacheImage(imageIds[0]);
       await cornerstone.loadAndCacheImage(imageIds[imageIds.length - 1]);
 
-      const ipFirst = cornerstone.metaData.get('imagePlaneModule', imageIds[0]) || {};
-      const ipLast  = cornerstone.metaData.get('imagePlaneModule', imageIds[imageIds.length - 1]) || {};
+      const ipFirst = cornerstone.metaData.get("imagePlaneModule", imageIds[0]) || {};
+      const ipLast  = cornerstone.metaData.get("imagePlaneModule", imageIds[imageIds.length - 1]) || {};
 
-      const cols = ipFirst.columns || ipFirst.width  || 512;
-      const rows = ipFirst.rows    || ipFirst.height || 512;
+      const cols   = ipFirst.columns || imgFirst.width  || 512;
+      const rows   = ipFirst.rows    || imgFirst.height || 512;
       const slices = imageIds.length;
 
-      // pixelSpacing: [row, column] → VTK usa [x=column, y=row, z]
-      const ps = ipFirst.pixelSpacing || [1, 1];
-      const colSpacing = ps[1] ?? 1;
-      const rowSpacing = ps[0] ?? 1;
+      const ps = ipFirst.pixelSpacing || [1, 1]; // [row, col]
+      const spacingX = ps[1] ?? 1; // column
+      const spacingY = ps[0] ?? 1; // row
 
-      // normal del stack
-      const r = ipFirst.rowCosines    || [1, 0, 0];
-      const c = ipFirst.columnCosines || [0, 1, 0];
+      const r = ipFirst.rowCosines    || [1,0,0];
+      const c = ipFirst.columnCosines || [0,1,0];
       const n = cross(r, c);
 
-      // Δpos (mm) proyectado en la normal → total Z (mm)
-      const p0 = ipFirst.imagePositionPatient || [0, 0, 0];
-      const p1 = ipLast.imagePositionPatient  || [0, 0, 0];
+      const p0 = ipFirst.imagePositionPatient || [0,0,0];
+      const p1 = ipLast.imagePositionPatient  || [0,0,0];
       const delta = [p1[0]-p0[0], p1[1]-p0[1], p1[2]-p0[2]];
       const totalZmm = Math.abs(dot(delta, n));
-      const zSpacing = slices > 1
-        ? totalZmm / (slices - 1)
-        : (ipFirst.spacingBetweenSlices || ipFirst.sliceThickness || 1);
+      const spacingZ = slices > 1 ? (totalZmm / (slices - 1)) : (ipFirst.spacingBetweenSlices || ipFirst.sliceThickness || 1);
 
-      const spacing = [colSpacing, rowSpacing, zSpacing];
+      const spacing = [spacingX, spacingY, spacingZ];
       const origin  = p0;
+      console.log("dims:", { cols, rows, slices }, "spacing:", spacing, "origin:", origin);
 
-      // 2) Cargar máscaras por corte y rasterizar
-      // ---- Si tienes valid-indices ----
-      let indices = [];
+      // 2) Máscaras — 1) stack BD → 2) BD por slice → 3) filesystem
+      let lungLayers = [];
+      let fibroLayers = [];
+
       try {
-        const { data } = await axios.get(API.validIndices(folder));
-        if (Array.isArray(data)) indices = data.map((v) => String(v).padStart(3, "0"));
-        else if (Array.isArray(data?.indices)) indices = data.indices.map((v) => String(v).padStart(3, "0"));
-      } catch {
-        indices = Array.from({ length: slices }, (_, i) => String(i).padStart(3, "0"));
-      }
-      if (!indices.length) throw new Error("No hay máscaras disponibles para este estudio.");
-
-      setProgress3D({ loaded: 0, total: indices.length });
-
-      const lungLayers = [];
-      const fibroLayers = [];
-      for (let k = 0; k < indices.length; k++) {
-        const idx = indices[k];
-        try {
-          const { data: sliceJson } = await axios.get(API.maskJson(folder, idx));
-          const { lung, fibrosis } = extractSlicePolygons(sliceJson);
-          lungLayers.push(lung || []);
-          fibroLayers.push(fibrosis || []);
-        } catch {
-          lungLayers.push([]);
-          fibroLayers.push([]);
-        } finally {
-          setProgress3D(p => ({ ...p, loaded: p.loaded + 1 }));
+        console.log("Intentando BD: mask-stack-by-folder…");
+        const { data: stack } = await axios.get(API.maskStackByFolder(folder));
+        console.log("stack-resp:", stack);
+        if (Array.isArray(stack?.bySlice) && stack.bySlice.length) {
+          lungLayers  = stack.bySlice.map((s) => (Array.isArray(s?.lung) ? s.lung : []));
+          fibroLayers = stack.bySlice.map((s) => (Array.isArray(s?.fibrosis) ? s.fibrosis : []));
+          console.log(`stack OK → slices=${stack.bySlice.length}`);
+        } else {
+          console.log("stack vacío.");
         }
+      } catch (e) {
+        console.warn("mask-stack-by-folder fallo:", e?.message || e, e?.response?.data);
       }
 
+      if (!lungLayers.length || !fibroLayers.length) {
+        console.log("Fallback BD por slice…");
+        const tmpL = [], tmpF = [];
+        setProgress3D({ loaded: 0, total: slices });
+        for (let i = 0; i < slices; i++) {
+          try {
+            const { data } = await axios.get(API.maskDbByFolder(folder, i));
+            const { lung, fibrosis } = extractSlicePolygons(data);
+            tmpL.push(lung); tmpF.push(fibrosis);
+          } catch (e) {
+            console.warn(`mask-db-by-folder fallo slice ${i}:`, e?.message || e);
+            tmpL.push([]); tmpF.push([]);
+          } finally {
+            setProgress3D((p) => ({ ...p, loaded: p.loaded + 1 }));
+          }
+        }
+        lungLayers  = tmpL;
+        fibroLayers = tmpF;
+        console.log(`BD por slice → llenado: L=${lungLayers.length} F=${fibroLayers.length}`);
+      }
+
+      if (!lungLayers.length || !fibroLayers.length) {
+        console.log("Último fallback: filesystem (valid-indices + mask-json) …");
+        let indices = [];
+        try {
+          const { data } = await axios.get(API.validIndices(folder));
+          if (Array.isArray(data)) indices = data.map((v) => String(v).padStart(3, "0"));
+          else if (Array.isArray(data?.indices)) indices = data.indices.map((v) => String(v).padStart(3, "0"));
+        } catch (e) {
+          console.warn("valid-indices fallo:", e?.message || e);
+        }
+        if (!indices.length) indices = Array.from({ length: slices }, (_, i) => String(i).padStart(3, "0"));
+
+        setProgress3D({ loaded: 0, total: indices.length });
+
+        const tmpL = [], tmpF = [];
+        for (let k = 0; k < indices.length; k++) {
+          const idx = indices[k];
+          try {
+            const { data: sliceJson } = await axios.get(API.maskJson(folder, idx));
+            const { lung, fibrosis } = extractSlicePolygons(sliceJson);
+            tmpL.push(lung || []); tmpF.push(fibrosis || []);
+          } catch (e) {
+            console.warn(`mask-json fallo idx ${idx}:`, e?.message || e);
+            tmpL.push([]); tmpF.push([]);
+          } finally {
+            setProgress3D((p) => ({ ...p, loaded: p.loaded + 1 }));
+          }
+        }
+        lungLayers  = tmpL;
+        fibroLayers = tmpF;
+        console.log(`filesystem → llenado: L=${lungLayers.length} F=${fibroLayers.length}`);
+      }
+
+      // Asegurar longitud = nº slices de DICOM
+      lungLayers  = padToLength(lungLayers,  slices, []);
+      fibroLayers = padToLength(fibroLayers, slices, []);
+
+      // 3) Rasterizar
+      console.time("[3D] raster lung");
       const volumeArray    = createVolumeFromContours(lungLayers,  cols, rows);
+      console.timeEnd("[3D] raster lung");
+      console.time("[3D] raster fibrosis");
       const fibrosisVolArr = createVolumeFromContours(fibroLayers, cols, rows);
-      const dims = [cols, rows, lungLayers.length];
+      console.timeEnd("[3D] raster fibrosis");
 
-      // 3) Elegir calidad según nº cortes
-      const quality = dims[2] >= 250 ? 'half' : 'full';
+      const dims = [cols, rows, slices];
+      const quality = slices >= 250 ? "half" : "full";
 
+      console.log("VTK ready → dims:", dims, "quality:", quality);
       setVtkData({ volumeArray, fibrosisVolArr, dims, spacing, origin, quality });
       setOpen3D(true);
     } catch (e) {
+      console.error("[3D] error:", e?.message || e, e?.response?.data);
       setError3D(e?.message || "No se pudo abrir el 3D.");
     } finally {
       setLoading3D(false);
+      console.groupEnd();
     }
   };
 
@@ -233,7 +341,7 @@ export default function RenderPulmon() {
 
   return (
     <div style={{ padding: "1.5rem" }}>
-      <h2>Visualización 3D VTK — rasterizando desde polígonos (spacing/origin reales)</h2>
+      <h2>Visualización 3D VTK — máscaras desde BD (con fallback)</h2>
 
       {/* BUSCADOR */}
       <div style={{ display: "flex", gap: 8, margin: "12px 0" }}>
@@ -304,7 +412,6 @@ export default function RenderPulmon() {
                   </div>
 
                   <div style={{ display: "flex", gap: 8, justifyContent: "center", marginTop: 10 }}>
-                    {/* ← Quitamos “Ver 2D” */}
                     <button
                       className="btn"
                       onClick={() => open3DForStudy(s)}

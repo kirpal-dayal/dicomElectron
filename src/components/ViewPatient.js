@@ -3,7 +3,7 @@
  *
  * FRONTEND – Página principal para visualizar el expediente de un paciente y sus estudios (DICOM).
  * - “Visualizar 3D (demo)” abre un overlay con VTK y usa máscaras locales (loadMaskFiles).
- * - Para la demo, intentamos leer spacing/origin reales desde un DICOM del expediente.
+ * - Además, lee StudyDate/StudyTime desde un DICOM para mostrar la fecha real del estudio.
  */
 
 import React, { useState, useEffect, useRef } from "react";
@@ -16,13 +16,28 @@ import cornerstoneWADOImageLoader from "cornerstone-wado-image-loader";
 import dicomParser from "dicom-parser";
 
 import DescripcionEstudio from "./modals/DescripcionEstudio";
-import VTKVolumeViewer from "./VTKVolumeViewer";
-import { loadMaskFiles } from "../utils/loadMaskfiles";
+// import VTKVolumeViewer from "./VTKVolumeViewer";
+// import { loadMaskFiles } from "../utils/loadMaskfiles";
 
 // ---- Cornerstone config (WADO-URI desde backend) ----
 cornerstoneWADOImageLoader.external.cornerstone = cornerstone;
 cornerstoneWADOImageLoader.external.dicomParser = dicomParser;
-cornerstoneWADOImageLoader.configure({ beforeSend: () => { } });
+cornerstoneWADOImageLoader.configure({ beforeSend: () => {} });
+
+// Registrar metaDataProvider de forma segura (según versión del loader)
+const wadoMetaProvider =
+  cornerstoneWADOImageLoader?.wadouri?.metaDataProvider ??
+  cornerstoneWADOImageLoader?.metaData?.metaDataProvider ??
+  cornerstoneWADOImageLoader?.metaDataProvider;
+
+if (cornerstone?.metaData?.addProvider && typeof wadoMetaProvider === "function") {
+  cornerstone.metaData.addProvider(
+    (type, imageId) => wadoMetaProvider(type, imageId),
+    9999
+  );
+} else {
+  console.warn("[DICOM] No se encontró un metaDataProvider válido en cornerstone-wado-image-loader.");
+}
 
 // Miniatura DICOM simple con Cornerstone
 function DicomThumbnail({ imageId }) {
@@ -35,23 +50,35 @@ function DicomThumbnail({ imageId }) {
     let cancelled = false;
 
     const isEnabled = () => {
-      try { cornerstone.getEnabledElement(el); return true; }
-      catch { return false; }
+      try {
+        cornerstone.getEnabledElement(el);
+        return true;
+      } catch {
+        return false;
+      }
     };
 
-    if (!isEnabled()) { try { cornerstone.enable(el); } catch { } }
+    if (!isEnabled()) {
+      try {
+        cornerstone.enable(el);
+      } catch {}
+    }
 
     cornerstone
       .loadAndCacheImage(imageId)
       .then((image) => {
         if (cancelled) return;
-        try { if (isEnabled()) cornerstone.displayImage(el, image); } catch { }
+        try {
+          if (isEnabled()) cornerstone.displayImage(el, image);
+        } catch {}
       })
-      .catch(() => { });
+      .catch(() => {});
 
     return () => {
       cancelled = true;
-      try { if (isEnabled()) cornerstone.disable(el); } catch { }
+      try {
+        if (isEnabled()) cornerstone.disable(el);
+      } catch {}
     };
   }, [imageId]);
 
@@ -69,6 +96,25 @@ function DicomThumbnail({ imageId }) {
   );
 }
 
+// Convierte DICOM StudyDate/StudyTime -> 'YYYY-MM-DD HH:mm:ss'
+function toSQLFromDicomDateTime(dateStr, timeStr) {
+  // dateStr: 'YYYYMMDD'  | timeStr: 'HHMMSS.FFFFFF' (opcional)
+  if (!dateStr || dateStr.length < 8) return null;
+  const yyyy = dateStr.slice(0, 4);
+  const mm = dateStr.slice(4, 6);
+  const dd = dateStr.slice(6, 8);
+
+  // HHMMSS(.xxxxx) opcional
+  let hh = "00",
+    mi = "00",
+    ss = "00";
+  if (timeStr && timeStr.length >= 2) {
+    hh = timeStr.slice(0, 2) || "00";
+    mi = timeStr.slice(2, 4) || "00";
+    ss = timeStr.slice(4, 6) || "00";
+  }
+  return `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}`;
+}
 
 // Fecha JS -> string SQL
 function toSQLDateString(fecha) {
@@ -94,24 +140,20 @@ export default function ViewPatient() {
   const [error, setError] = useState("");
 
   // Overlay 3D (VTK) – demo
-  const [isLungRenderVisible, setLungRenderVisible] = useState(false);
-  const [lungVolArr, setLungVolArr] = useState(null);
-  const [fibroVolArr, setFibroVolArr] = useState(null);
-  const [dims, setDims] = useState(null);
+  // const [isLungRenderVisible, setLungRenderVisible] = useState(false);
+  // const [lungVolArr, setLungVolArr] = useState(null);
+  // const [fibroVolArr, setFibroVolArr] = useState(null);
+  // const [dims, setDims] = useState(null);
 
-  // Metadatos físicos para pasar al demo
-  const [spacing, setSpacing] = useState([1, 1, 1]);
-  const [origin, setOrigin] = useState([0, 0, 0]);
+  // // Metadatos físicos para pasar al demo
+  // const [spacing, setSpacing] = useState([1, 1, 1]);
+  // const [origin, setOrigin] = useState([0, 0, 0]);
 
   //Descripcion del estudio
   const [showDescripcionModal, setShowDescripcionModal] = useState(false);
   const [descripcionActual, setDescripcionActual] = useState("");
 
-  //  Ocultamos estos estados comentándolos
-  // const [quality, setQuality] = useState("full"); // 'full' | 'half' | 'quarter'
-  // const [progressMsg, setProgressMsg] = useState("");
-
-  // Cargar expediente + preparar miniaturas por estudio
+  // Cargar expediente + preparar miniaturas por estudio (y leer fecha DICOM)
   const fetchRecord = async () => {
     try {
       setLoading(true);
@@ -124,17 +166,50 @@ export default function ViewPatient() {
         (exp.studies || []).map(async (s) => {
           const safeFecha = toSQLDateString(s.fecha).replace(/[: ]/g, "_");
           const folder = `${exp.nss}_${safeFecha}`;
+          let dicomUrl = null;
+
           try {
             const { data: files } = await axios.get(
               `http://localhost:5000/api/image/dicom-list/${folder}`
             );
-            if (!files?.length) throw new Error("No DICOM files");
-            const mid = files[Math.floor(files.length / 2)];
-            const dicomUrl = `wadouri:http://localhost:5000/api/image/dicom/${folder}/${mid}`;
-            return { ...s, folder, dicomUrl };
+            if (files?.length) {
+              const mid = files[Math.floor(files.length / 2)];
+              dicomUrl = `wadouri:http://localhost:5000/api/image/dicom/${folder}/${encodeURIComponent(
+                mid
+              )}`;
+            }
           } catch {
-            return { ...s, folder, dicomUrl: null };
+            // sin DICOMs; dejamos dicomUrl = null
           }
+
+          // Leer fecha DICOM real (si existe dicomUrl)
+          let fechaDicomSQL = null;
+          if (dicomUrl) {
+            try {
+              const image = await cornerstone.loadAndCacheImage(dicomUrl);
+              // Preferir módulo generalStudyModule
+              const gs =
+                cornerstone.metaData.get("generalStudyModule", dicomUrl) || {};
+              let studyDate = gs.studyDate; // 'YYYYMMDD'
+              let studyTime = gs.studyTime; // 'HHMMSS(.ffffff)'
+
+              // Fallback directo al dataset crudo
+              if ((!studyDate || studyDate.length < 8) && image?.data?.string) {
+                const dsString = image.data.string.bind(image.data);
+                studyDate = dsString?.("x00080020") || studyDate; // StudyDate
+                studyTime = dsString?.("x00080030") || studyTime; // StudyTime
+              }
+
+              fechaDicomSQL = toSQLFromDicomDateTime(studyDate, studyTime);
+            } catch {
+              // silencioso: si falla, usamos s.fecha original
+            }
+          }
+
+          // Fecha a mostrar en UI (DICOM si la logramos leer; si no, la original)
+          const fechaMostrar = fechaDicomSQL || s.fecha;
+
+          return { ...s, folder, dicomUrl, fechaMostrar, fechaDicomSQL };
         })
       );
 
@@ -157,87 +232,114 @@ export default function ViewPatient() {
   }, [nss, navigate]);
 
   // Spacing/origin desde dos cortes adyacentes
-  const probeSpacingFromAnyStudy = async () => {
-    try {
-      if (!record?.studies?.length) return { spacing: [1, 1, 1], origin: [0, 0, 0] };
+  // const probeSpacingFromAnyStudy = async () => {
+  //   try {
+  //     if (!record?.studies?.length)
+  //       return { spacing: [1, 1, 1], origin: [0, 0, 0] };
 
-      const s0 = record.studies.find(s => s.folder) || record.studies[0];
-      const folder = s0.folder || `${record.nss}_${toSQLDateString(s0.fecha).replace(/[: ]/g, "_")}`;
+  //     const s0 = record.studies.find((s) => s.folder) || record.studies[0];
+  //     const folder =
+  //       s0.folder ||
+  //       `${record.nss}_${toSQLDateString(s0.fecha).replace(/[: ]/g, "_")}`;
 
-      const { data: files } = await axios.get(`http://localhost:5000/api/image/dicom-list/${folder}`);
-      if (!files?.length) return { spacing: [1, 1, 1], origin: [0, 0, 0] };
+  //     const { data: files } = await axios.get(
+  //       `http://localhost:5000/api/image/dicom-list/${folder}`
+  //     );
+  //     if (!files?.length) return { spacing: [1, 1, 1], origin: [0, 0, 0] };
 
-      const i0 = Math.max(0, Math.floor(files.length / 2) - 1);
-      const i1 = Math.min(files.length - 1, i0 + 1);
+  //     const i0 = Math.max(0, Math.floor(files.length / 2) - 1);
+  //     const i1 = Math.min(files.length - 1, i0 + 1);
 
-      const id0 = `wadouri:http://localhost:5000/api/image/dicom/${folder}/${files[i0]}`;
-      const id1 = `wadouri:http://localhost:5000/api/image/dicom/${folder}/${files[i1]}`;
+  //     const id0 = `wadouri:http://localhost:5000/api/image/dicom/${folder}/${encodeURIComponent(
+  //       files[i0]
+  //     )}`;
+  //     const id1 = `wadouri:http://localhost:5000/api/image/dicom/${folder}/${encodeURIComponent(
+  //       files[i1]
+  //     )}`;
 
-      await cornerstone.loadAndCacheImage(id0);
-      await cornerstone.loadAndCacheImage(id1);
+  //     await cornerstone.loadAndCacheImage(id0);
+  //     await cornerstone.loadAndCacheImage(id1);
 
-      const p0 = cornerstone.metaData.get('imagePlaneModule', id0) || {};
-      const p1 = cornerstone.metaData.get('imagePlaneModule', id1) || {};
+  //     const p0 = cornerstone.metaData.get("imagePlaneModule", id0) || {};
+  //     const p1 = cornerstone.metaData.get("imagePlaneModule", id1) || {};
 
-      const sy = p0.rowPixelSpacing ?? p0.pixelSpacing?.[0] ?? 1;
-      const sx = p0.columnPixelSpacing ?? p0.pixelSpacing?.[1] ?? 1;
+  //     const sy = p0.rowPixelSpacing ?? p0.pixelSpacing?.[0] ?? 1;
+  //     const sx = p0.columnPixelSpacing ?? p0.pixelSpacing?.[1] ?? 1;
 
-      const rc = p0.rowCosines || p0.rowCosine || [1, 0, 0];
-      const cc = p0.columnCosines || p0.columnCosine || [0, 1, 0];
-      const n = [
-        rc[1] * cc[2] - rc[2] * cc[1],
-        rc[2] * cc[0] - rc[0] * cc[2],
-        rc[0] * cc[1] - rc[1] * cc[0],
-      ];
+  //     const rc = p0.rowCosines || p0.rowCosine || [1, 0, 0];
+  //     const cc = p0.columnCosines || p0.columnCosine || [0, 1, 0];
+  //     const n = [
+  //       rc[1] * cc[2] - rc[2] * cc[1],
+  //       rc[2] * cc[0] - rc[0] * cc[2],
+  //       rc[0] * cc[1] - rc[1] * cc[0],
+  //     ];
 
-      const ipp0 = p0.imagePositionPatient || [0, 0, 0];
-      const ipp1 = p1.imagePositionPatient || [0, 0, 0];
-      const d = [ipp1[0] - ipp0[0], ipp1[1] - ipp0[1], ipp1[2] - ipp0[2]];
-      const sz_from_ipp = Math.abs(d[0] * n[0] + d[1] * n[1] + d[2] * n[2]) || 1;
+  //     const ipp0 = p0.imagePositionPatient || [0, 0, 0];
+  //     const ipp1 = p1.imagePositionPatient || [0, 0, 0];
+  //     const d = [ipp1[0] - ipp0[0], ipp1[1] - ipp0[1], ipp1[2] - ipp0[2]];
+  //     const sz_from_ipp =
+  //       Math.abs(d[0] * n[0] + d[1] * n[1] + d[2] * n[2]) || 1;
 
-      const origin = ipp0;
-      const spacing = [sx, sy, sz_from_ipp];
+  //     const origin = ipp0;
+  //     const spacing = [sx, sy, sz_from_ipp];
 
-      console.log("[DEMO 3D] Spacing calculado con IPP/IOP:", spacing, "Origin:", origin,
-        "SliceThickness:", p0.sliceThickness, "SpacingBetweenSlices:", p0.spacingBetweenSlices);
+  //     console.log(
+  //       "[DEMO 3D] Spacing calculado con IPP/IOP:",
+  //       spacing,
+  //       "Origin:",
+  //       origin,
+  //       "SliceThickness:",
+  //       p0.sliceThickness,
+  //       "SpacingBetweenSlices:",
+  //       p0.spacingBetweenSlices
+  //     );
 
-      return { spacing, origin };
-    } catch (e) {
-      console.warn("[DEMO 3D] Fallback spacing/origin [1,1,1]/[0,0,0] ->", e?.message || e);
-      return { spacing: [1, 1, 1], origin: [0, 0, 0] };
-    }
-  };
+  //     return { spacing, origin };
+  //   } catch (e) {
+  //     console.warn(
+  //       "[DEMO 3D] Fallback spacing/origin [1,1,1]/[0,0,0] ->",
+  //       e?.message || e
+  //     );
+  //     return { spacing: [1, 1, 1], origin: [0, 0, 0] };
+  //   }
+  // };
 
   // Demo: abre el overlay y carga máscaras de ejemplo + spacing/origin
-  const handleShowLungRender = async () => {
-    try {
-      // setProgressMsg("Leyendo máscaras de demo…"); // oculto
-      const [lungVol, fibroVol, dimensions] = await loadMaskFiles("nada");
-      const { spacing: sp, origin: og } = await probeSpacingFromAnyStudy();
+  // const handleShowLungRender = async () => {
+  //   try {
+  //     const [lungVol, fibroVol, dimensions] = await loadMaskFiles("nada");
+  //     const { spacing: sp, origin: og } = await probeSpacingFromAnyStudy();
 
-      console.log("[DEMO 3D] Dims (máscaras):", dimensions, "Spacing:", sp, "Origin:", og);
+  //     console.log(
+  //       "[DEMO 3D] Dims (máscaras):",
+  //       dimensions,
+  //       "Spacing:",
+  //       sp,
+  //       "Origin:",
+  //       og
+  //     );
 
-      setLungVolArr(lungVol);
-      setFibroVolArr(fibroVol);
-      setDims(dimensions);
-      setSpacing(sp);
-      setOrigin(og);
-      setLungRenderVisible(true);
-      // setProgressMsg("Listo."); // oculto
-    } catch (e) {
-      console.error("Error loading demo masks", e);
-      alert("No se pudieron cargar las máscaras de demo.");
-    }
-  };
+  //     setLungVolArr(lungVol);
+  //     setFibroVolArr(fibroVol);
+  //     setDims(dimensions);
+  //     setSpacing(sp);
+  //     setOrigin(og);
+  //     setLungRenderVisible(true);
+  //   } catch (e) {
+  //     console.error("Error loading demo masks", e);
+  //     alert("No se pudieron cargar las máscaras de demo.");
+  //   }
+  // };
 
-  const handleBackOrigin = () => {
-    setLungRenderVisible(false);
-  };
+  // const handleBackOrigin = () => {
+  //   setLungRenderVisible(false);
+  // };
 
   // Subir ZIP con DICOMs
   const handleZipChange = async (e) => {
     const file = e.target.files?.[0];
-    if (!file?.name.endsWith(".zip")) return alert("Selecciona un archivo .zip válido");
+    if (!file?.name.endsWith(".zip"))
+      return alert("Selecciona un archivo .zip válido");
 
     const now = new Date();
     const formatted = toSQLDateString(now);
@@ -261,95 +363,23 @@ export default function ViewPatient() {
 
   // Loading / error
   if (loading) {
-    return <div style={{ padding: "2rem", textAlign: "center" }}>Cargando expediente…</div>;
+    return (
+      <div style={{ padding: "2rem", textAlign: "center" }}>
+        Cargando expediente…
+      </div>
+    );
   }
   if (error || !record) {
-    return <div style={{ padding: "2rem", textAlign: "center", color: "red" }}>{error || "Error desconocido"}</div>;
+    return (
+      <div style={{ padding: "2rem", textAlign: "center", color: "red" }}>
+        {error || "Error desconocido"}
+      </div>
+    );
   }
 
   return (
     <div>
-      {isLungRenderVisible ? (
-        // Overlay 3D a pantalla completa (demo)
-        <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            zIndex: 10000,
-            background: "rgba(0,0,0,0.92)",
-            display: "flex",
-            flexDirection: "column",
-          }}
-        >
-          {/* Barra superior con controles y metadatos */}
-          <div style={{ padding: 10, display: "flex", gap: 12, alignItems: "center", color: "#fff" }}>
-            <button
-              onClick={handleBackOrigin}
-              style={{
-                padding: "6px 10px",
-                background: "#2563eb",
-                color: "#fff",
-                border: "none",
-                borderRadius: 6,
-                fontWeight: "bold",
-              }}
-            >
-              Volver
-            </button>
-
-            {/* Oculta la info de Dims/Spacing/Origin */}
-            {/*
-            <div style={{ opacity: 0.9 }}>
-              <strong>Dims:</strong>{" "}
-              {dims ? `${dims[0]}×${dims[1]}×${dims[2]}` : "-"}
-              {"  ·  "}
-              <strong>Spacing (mm):</strong>{" "}
-              {spacing ? `${spacing[0]}×${spacing[1]}×${spacing[2]}` : "-"}
-              {"  ·  "}
-              <strong>Origin (mm):</strong>{" "}
-              {origin ? `${origin[0].toFixed?.(1) ?? origin[0]},${origin[1].toFixed?.(1) ?? origin[1]},${origin[2].toFixed?.(1) ?? origin[2]}` : "-"}
-            </div>
-            */}
-
-            {/*Oculta el selector de calidad */}
-            {/*
-            <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
-              <span style={{ fontSize: 12, opacity: 0.8 }}>Calidad:</span>
-              <select
-                value={quality}
-                onChange={(e) => setQuality(e.target.value)}
-                style={{ padding: "4px 6px", borderRadius: 6 }}
-              >
-                <option value="full">Full</option>
-                <option value="half">Half</option>
-                <option value="quarter">Quarter</option>
-              </select>
-            </div>
-            */}
-          </div>
-
-          {/* Lienzo VTK */}
-          <div style={{ flex: 1, minHeight: 0 }}>
-            <VTKVolumeViewer
-              volumeArray={lungVolArr}
-              fibrosisVolArr={fibroVolArr}
-              dims={dims}
-              spacing={spacing}
-              origin={origin}
-              quality="full"         //  fijo; no se muestra control
-            // onProgress={(msg) => setProgressMsg(String(msg))} //  oculto
-            />
-          </div>
-
-          {/* Oculta el pie con mensaje de progreso */}
-          {/*
-          <div style={{ padding: "6px 10px", color: "#bbb", fontSize: 12 }}>
-            {progressMsg}
-          </div>
-          */}
-        </div>
-      ) : (
-        // Página de lista de estudios
+        {/* // Página de lista de estudios */}
         <div style={{ display: "flex", padding: "2rem", gap: "2rem" }}>
           {/* Panel izquierdo: info paciente */}
           <div style={{ flex: "1", maxWidth: "350px" }}>
@@ -363,14 +393,24 @@ export default function ViewPatient() {
                 <label>Fecha de Nacimiento</label>
                 <input
                   type="date"
-                  value={new Date(record.fecha_nacimiento).toISOString().split("T")[0]}
+                  value={
+                    new Date(record.fecha_nacimiento)
+                      .toISOString()
+                      .split("T")[0]
+                  }
                   disabled
                 />
               </div>
               <div className="form-group">
                 <label>Sexo</label>
                 <input
-                  value={record.sexo === 1 ? "Hombre" : record.sexo === 2 ? "Mujer" : "Otro"}
+                  value={
+                    record.sexo === 1
+                      ? "Hombre"
+                      : record.sexo === 2
+                      ? "Mujer"
+                      : "Otro"
+                  }
                   disabled
                 />
               </div>
@@ -429,10 +469,11 @@ export default function ViewPatient() {
                     )}
 
                     <p>
-                      <strong>Fecha:</strong> {new Date(s.fecha).toLocaleString()}
+                      <strong>Fecha (DICOM):</strong>{" "}
+                      {new Date(s.fechaMostrar).toLocaleString()}
                     </p>
 
-                    {/* Ver (al pasar el cursor) y editar descripcion elaborada por el medico */}
+                    {/* Ver/editar descripción */}
                     <button
                       className="btn"
                       title={s.descripcion || "-"}
@@ -441,8 +482,8 @@ export default function ViewPatient() {
                         setShowDescripcionModal({
                           open: true,
                           nss_expediente: record.nss,
-                          //fecha: s.fecha, //Formato ISO no compatible con MySQL
-                          fecha: toSQLDateString(s.fecha), // siempre en formato SQL
+                          // fecha: s.fecha (ISO puede fallar en MySQL)
+                          fecha: toSQLDateString(s.fecha), // siempre SQL
                         });
                       }}
                       style={{ marginTop: 8 }}
@@ -455,21 +496,28 @@ export default function ViewPatient() {
                       className="btn"
                       onClick={() =>
                         navigate(
-                          `/estudio/${record.nss}/${encodeURIComponent(toSQLDateString(s.fecha))}`
+                          `/estudio/${record.nss}/${encodeURIComponent(
+                            toSQLDateString(s.fecha)
+                          )}` +
+                            (s.fechaDicomSQL
+                              ? `?fechaDicom=${encodeURIComponent(
+                                  s.fechaDicomSQL
+                                )}`
+                              : "")
                         )
                       }
                       style={{ marginTop: 8 }}
                     >
-                      Editar
+                      Etiquetado 🖥️
                     </button>
 
                     {/* Demo: overlay 3D con máscaras locales */}
                     <button
                       className="btn"
-                      onClick={handleShowLungRender}
+                      onClick={() => navigate( `/render-pulmon?nss=${encodeURIComponent(record.nss)}&folder=${encodeURIComponent(s.folder)}`)}
                       style={{ marginTop: 8 }}
                     >
-                      Visualizar 3D
+                      Visualizar 3D 🏗️
                     </button>
                   </div>
                 ))}
@@ -477,7 +525,9 @@ export default function ViewPatient() {
                 {/* Tarjeta para subir ZIP */}
                 <div
                   className="grid-item upload-card"
-                  onClick={() => document.getElementById("zip-upload").click()}
+                  onClick={() =>
+                    document.getElementById("zip-upload").click()
+                  }
                   style={{
                     background: "#fff",
                     border: "1px dashed #007bff",
@@ -508,42 +558,24 @@ export default function ViewPatient() {
                 </div>
               </div>
 
-              <div className="actions" style={{ marginTop: "2rem" }}>
-                <button
-                  className="btn"
-                  onClick={() => navigate(`/analisis-detallado/${record.nss}`)}
-                >
-                  ...
-                </button>
 
-                {/* Página dedicada a VTK (si ya la tienes) */}
-                <button
-                  className="btn"
-                  onClick={() =>
-                    navigate(`/render-pulmon?nss=${encodeURIComponent(record.nss)}`)}
-                  style={{ marginLeft: 8 }}
-                >
-                  ...
-                </button>
-              </div>
             </section>
           </div>
+
           <div>
             {showDescripcionModal && (
               <DescripcionEstudio
                 descripcion={descripcionActual}
                 nss_expediente={showDescripcionModal.nss_expediente}
                 fecha={showDescripcionModal.fecha}
-                onClose={() => setShowDescripcionModal(false )}
-                onSave={async (desc) => {
-                  // Aquí puedes actualizar el estado local
+                onClose={() => setShowDescripcionModal(false)}
+                onSave={async () => {
                   await fetchRecord(); // refresca la lista de estudios
                 }}
               />
             )}
           </div>
         </div>
-      )}
     </div>
   );
 }

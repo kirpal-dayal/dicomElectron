@@ -221,9 +221,7 @@ export default function DoctorView() {
           <button className="btn" onClick={() => setShowForm(true)}>
             Añadir Paciente
           </button>
-          <button className="btn" onClick={handleDelete}>
-            Eliminar paciente
-          </button>
+
           <button className="btn" onClick={handleLogout}>
             Salir
           </button>
