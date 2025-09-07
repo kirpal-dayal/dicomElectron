@@ -3,14 +3,36 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 
+import { loadMaskFiles } from '../utils/loadMaskfiles';
+import VTKVolumeViewer from './VTKVolumeViewer';
+
 export default function Home() {
-  const [form, setForm]           = useState({ id: '', password: '' });
-  const [errors, setErrors]       = useState({});
-  const [loading, setLoading]     = useState(false);
+  const [form, setForm] = useState({ id: '', password: '' });
+  const [errors, setErrors] = useState({});
+  const [loading, setLoading] = useState(false);
   const [serverError, setServerError] = useState('');
+  const [data2, setData2] = useState([]);
   const navigate = useNavigate();
 
   const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+
+  const [isLungRenderVisible, setIsLungRenderVisible] = useState(false);
+  const handleShowLungRender = async () => {
+    console.log("entro a handleShowLungRender");
+
+    //[lungVolArr, fibroVolArr, dims] = data;
+    const [lungVolArr, fibroVolArr, dims] = await loadMaskFiles('jeje');
+    setData2([lungVolArr, fibroVolArr, dims]);
+    console.log("los datos son home:" + dims);
+
+    console.log("Se recuperaron los volumenes")
+    setIsLungRenderVisible(true);
+    console.log("Se concluye con exito handleShowLungRender")
+    
+  };
+  const handleBackOrigin = () => {
+    setIsLungRenderVisible(false);
+  };
 
   const handleChange = ({ target: { name, value } }) => {
     setForm(f => ({ ...f, [name]: value }));
@@ -48,9 +70,9 @@ export default function Home() {
       );
 
       // Redirigir según rol
-      if (data.role === 'admin')      navigate('/admin');
+      if (data.role === 'admin') navigate('/admin');
       else if (data.role === 'doctor') navigate('/doctor');
-      else if (data.role === 'user')   navigate('/user');
+      else if (data.role === 'user') navigate('/user');
       else setServerError('Rol desconocido');
     } catch (err) {
       setServerError(err.response?.data || 'Error desconocido al iniciar sesión');
@@ -60,8 +82,17 @@ export default function Home() {
   };
 
   return (
-    <>
-      <style>{`
+    <div style={{ width: '100%', height: '100%' }}>
+      {isLungRenderVisible ? (
+        <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }}>
+          <VTKVolumeViewer data={data2} />
+          <button onClick={handleBackOrigin} style={{ position: 'absolute', top: 20, right: 20 }}>
+            Volver a A
+          </button>
+        </div>
+      ) : (
+        <>
+          <style>{`
         .home-container {
           min-height: 100vh;
           display: flex;
@@ -129,46 +160,51 @@ export default function Home() {
         }
       `}</style>
 
-      <div className="home-container">
-        <form className="login-card" onSubmit={handleSubmit}>
-          <h2 className="title">Iniciar</h2>
+          <div className="home-container">
+            <form className="login-card" onSubmit={handleSubmit}>
+              <h2 className="title">Iniciar</h2>
 
-          <div className="form-group">
-            <label htmlFor="id" className="label">ID del Usuario</label>
-            <input
-              id="id"
-              name="id"
-              className="input"
-              value={form.id}
-              onChange={handleChange}
-              placeholder="Escribe el ID de tu usuario"
-              disabled={loading}
-            />
-            {errors.id && <p className="error-text">{errors.id}</p>} {/* NOTA: Esto valida al usuario*/}
+              <div className="form-group">
+                <label htmlFor="id" className="label">ID del Usuario</label>
+                <input
+                  id="id"
+                  name="id"
+                  className="input"
+                  value={form.id}
+                  onChange={handleChange}
+                  placeholder="Escribe el ID de tu usuario"
+                  disabled={loading}
+                />
+                {errors.id && <p className="error-text">{errors.id}</p>} {/* NOTA: Esto valida al usuario*/}
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="password" className="label">Contraseña</label>
+                <input
+                  id="password"
+                  name="password"
+                  type="password"
+                  className="input"
+                  value={form.password}
+                  onChange={handleChange}
+                  placeholder="Escribe tu contraseña"
+                  disabled={loading}
+                />
+                {errors.password && <p className="error-text">{errors.password}</p>}
+              </div>
+
+              {serverError && <p className="error-text">{serverError}</p>}
+
+              <button type="submit" className="btn" disabled={loading}>
+                {loading ? 'Verificando...' : 'Iniciar Sesión'}
+              </button>
+            </form>
+            <button className="btn" onClick={handleShowLungRender}>
+              Comparar volúmenes VTK
+            </button>
           </div>
-
-          <div className="form-group">
-            <label htmlFor="password" className="label">Contraseña</label>
-            <input
-              id="password"
-              name="password"
-              type="password"
-              className="input"
-              value={form.password}
-              onChange={handleChange}
-              placeholder="Escribe tu contraseña"
-              disabled={loading}
-            />
-            {errors.password && <p className="error-text">{errors.password}</p>}
-          </div>
-
-          {serverError && <p className="error-text">{serverError}</p>}
-
-          <button type="submit" className="btn" disabled={loading}>
-            {loading ? 'Verificando...' : 'Iniciar Sesión'}
-          </button>
-        </form>
-      </div>
-    </>
+        </>
+      )}
+    </div>
   );
 }

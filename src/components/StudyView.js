@@ -152,22 +152,26 @@ export default function StudyView() {
     }
   }, [layers, scale, selectedIndex]);
 
-  useEffect(() => {
-    const fetchAllEditableLayers = async () => {
-      const promises = dicomList.map((_, i) => {
-        const padded = String(i).padStart(3, '0');
-  
-        return Promise.all([
+useEffect(() => {
+  const fetchAllEditableLayers = async () => {
+    try {
+      const { data: validIndexMap } = await axios.get(`/api/segment/valid-indices/${folder}`);
+
+      const totalSlices = dicomList.length;
+      const layersPorSlice = new Array(totalSlices).fill(null);
+
+      const entries = Object.entries(validIndexMap);
+      const fetches = entries.map(async ([indexStr, filename]) => {
+        const index = parseInt(indexStr);
+        const padded = String(index).padStart(3, '0');
+
+        const [modelo, editable] = await Promise.all([
           axios.get(`/api/segment/mask-json/${folder}/${padded}`).then(res => res.data).catch(() => null),
           axios.get(`/api/segment/mask-json/${folder}/${padded}_simplified`).then(res => res.data).catch(() => null)
         ]);
-      });
-  
-      const results = await Promise.all(promises);
-  
-      const layersPorSlice = results.map(([modelo, editable]) => {
+
         const layers = [];
-  
+
         if (modelo) {
           layers.push({
             name: "Pulmón (modelo)",
@@ -186,7 +190,7 @@ export default function StudyView() {
             editable: false
           });
         }
-  
+
         if (editable) {
           layers.push({
             name: "Pulmón (editable)",
@@ -205,24 +209,29 @@ export default function StudyView() {
             editable: true
           });
         }
-  
-        return layers;
+
+        layersPorSlice[index] = layers;
       });
-  
+
+      await Promise.all(fetches);
+
       const firstImageId = `wadouri:${window.location.origin}${dicomList[0]}`;
       const image = await cornerstone.loadAndCacheImage(firstImageId);
       const { pixelSpacing, sliceThickness } = extractSpacingFromImage(image);
-  
       const volumenGlobal = calcularVolumenEditableGlobal(layersPorSlice, pixelSpacing, sliceThickness);
       setEditableVolumen(volumenGlobal);
-  
+
       setAllLayersPerSlice(layersPorSlice);
-    };
-  
-    if (dicomList.length > 0) {
-      fetchAllEditableLayers();
+    } catch (err) {
+      console.error("Error al cargar capas del modelo:", err);
     }
-  }, [dicomList, folder]);  
+  };
+
+  if (dicomList.length > 0) {
+    fetchAllEditableLayers();
+  }
+}, [dicomList, folder]);
+
   
   useEffect(() => {
     const fetchVolumen = async () => {

@@ -233,6 +233,18 @@ function guardarMascarasEnBD(folder, nss, fecha_estudio) {
   procesarTomo();  // Comienza el procesamiento
 }
 
+// GET /api/segment/valid-indices/:folder
+router.get("/valid-indices/:folder", async (req, res) => {
+  const folder = req.params.folder;
+  const filePath = path.join(__dirname, "../temp", folder, "segmentaciones_por_dicom", "valid_indices.json");
+
+  try {
+    const json = fs.readFileSync(filePath, "utf-8");
+    res.json(JSON.parse(json));
+  } catch (err) {
+    res.status(404).json({ error: "Archivo valid_indices.json no encontrado." });
+  }
+});
 
 module.exports = {
   router,
