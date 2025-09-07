@@ -22,7 +22,8 @@
     "simplify-js": "^1.2.4",
     "unzipper": "^0.12.3",
     "use-image": "^1.1.1",
-    "web-vitals": "^4.2.4"
+    "web-vitals": "^4.2.4",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "devDependencies": {
     "react-scripts": "^5.0.1"
