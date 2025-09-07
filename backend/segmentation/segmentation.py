@@ -143,23 +143,22 @@ def dicom_segmentation(path_original, size, n_clases, enable_dbscan_filter=True,
     SIZE_X, SIZE_Y = size
 
     # --- 1) Recolección robusta de DICOMs ---
+
+    import concurrent.futures
+
     files = glob.glob(os.path.join(path_original, "*"))
     if debug:
         print(f"[INFO] Archivos encontrados en carpeta: {len(files)}")
 
-    arr_original = []   # slices redimensionados (SIZE_X,SIZE_Y)
-    ds_valids = []      # datasets válidos
-    valid_paths = []    # rutas válidas (para valid_indices.json)
-    img_size = None     # (rows, cols) original
+    SIZE_X, SIZE_Y = size
 
-    for img_path in files:
+    def process_dicom(img_path):
         if not os.path.isfile(img_path):
             if debug:
                 print(f"[SKIP] {os.path.basename(img_path)} no es un archivo regular")
-            continue
+            return None
 
         if not is_dicom(img_path):
-            # No todos los DICOM tienen preámbulo estándar; intentaremos leerlo igual
             if debug:
                 print(f"[WARN] {os.path.basename(img_path)} no parece DICOM estándar (se intentará leer igual)")
 
@@ -168,17 +167,12 @@ def dicom_segmentation(path_original, size, n_clases, enable_dbscan_filter=True,
             if not hasattr(ds, "PixelData") or ds.get("PixelData") is None or ds.get("Rows") is None:
                 if debug:
                     print(f"[SKIP] {os.path.basename(img_path)} sin PixelData/Rows")
-                continue
-
+                return None
             img = ds.pixel_array
         except Exception as e:
             if debug:
                 print(f"[ERROR] Fallo al leer {os.path.basename(img_path)}: {e}")
-            continue
-
-        # Guardar tamaño original de referencia
-        if img_size is None:
-            img_size = img.shape  # (rows, cols)
+            return None
 
         # Reescala HU y recorta ventana [-1000, 250], luego normaliza a [0,1250] → uint16
         rescale_intercept = int(getattr(ds, "RescaleIntercept", 0))
@@ -190,9 +184,25 @@ def dicom_segmentation(path_original, size, n_clases, enable_dbscan_filter=True,
         # Resize para el modelo
         img_resized = cv2.resize(img, [SIZE_X, SIZE_Y], interpolation=cv2.INTER_LINEAR)
 
+        return (img_resized, ds, img_path, img.shape)  # img.shape = (rows, cols)
+
+    arr_original = []
+    ds_valids = []
+    valid_paths = []
+    img_size = None
+
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        results = list(executor.map(process_dicom, files))
+
+    for result in results:
+        if result is None:
+            continue
+        img_resized, ds, img_path, shape = result
         arr_original.append(img_resized)
         ds_valids.append(ds)
         valid_paths.append(img_path)
+        if img_size is None:
+            img_size = shape
 
     if len(arr_original) == 0:
         raise ValueError(f"No se encontraron imágenes DICOM utilizables en: {path_original}")

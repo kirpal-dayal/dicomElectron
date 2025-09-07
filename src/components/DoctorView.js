@@ -1,7 +1,9 @@
 // src/components/DoctorView.js
-import React, { useState, useEffect } from 'react'
-import axios from 'axios'
-import { useNavigate } from 'react-router-dom'
+import React, { useState, useEffect } from 'react';
+import axios from 'axios';
+import { useNavigate } from 'react-router-dom';
+
+import { descargarReporteGeneral } from '../utils/reportes/descargarReportes';
 
 export default function DoctorView() {
   const navigate = useNavigate()
@@ -221,7 +223,7 @@ export default function DoctorView() {
           <button className="btn" onClick={() => setShowForm(true)}>
             Añadir Paciente
           </button>
-
+          <button className='btn' onClick={descargarReporteGeneral}>Descargar reporte general (.xlsx)</button>
           <button className="btn" onClick={handleLogout}>
             Salir
           </button>

@@ -6,6 +6,18 @@ console.log('🗂 estudios.js cargado');
 module.exports = (app) => {
     console.log('  → Registrando rutas de', ENDPOINT);
 
+    //Obtener todos los estudios
+    app.get(ENDPOINT, (res) => {
+        const query = 'SELECT * FROM estudio';
+        db.query(query, (err, res) => {
+            if (err) {
+                console.log(err);
+                return res.status(500).send(err);
+            }
+            res.json(res);
+        });
+    });
+
     // Modificar la descripcion de un estudio
     app.patch(ENDPOINT + '/descripcion', (req, res) => {
         console.log("llegue al patch");
