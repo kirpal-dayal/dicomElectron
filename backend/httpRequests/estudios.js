@@ -7,14 +7,15 @@ module.exports = (app) => {
     console.log('  → Registrando rutas de', ENDPOINT);
 
     //Obtener todos los estudios
-    app.get(ENDPOINT, (res) => {
+    app.get(ENDPOINT, (req, res) => { // Dejar req por convencion de express
         const query = 'SELECT * FROM estudio';
-        db.query(query, (err, res) => {
+        db.query(query, (err, results) => {
             if (err) {
                 console.log(err);
                 return res.status(500).send(err);
             }
-            res.json(res);
+            console.log(results);
+            res.json(results); 
         });
     });
 
