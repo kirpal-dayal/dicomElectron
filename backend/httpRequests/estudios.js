@@ -6,7 +6,7 @@ console.log('🗂 estudios.js cargado');
 module.exports = (app) => {
     console.log('  → Registrando rutas de', ENDPOINT);
 
-    //Obtener todos los estudios p/ el reporte gral
+    //Obtener todos los estudios p/ el reporte gral con conteo de imagenes
     app.get(ENDPOINT, (req, res) => { // Dejar req por convencion de express
         const query = `SELECT 
             e.fecha,
@@ -36,7 +36,7 @@ module.exports = (app) => {
         });
     });
 
-    // Obtner un todos los estudios de un paciente por NSS para su reporte
+    // Obtner un todos los estudios de un paciente por NSS para su reporte con conteo de imagenes
     app.get(ENDPOINT + '/:nss', (req, res) => {
         const { nss } = req.params; // Extraer el parámetro de la URL
         if (!nss) {
