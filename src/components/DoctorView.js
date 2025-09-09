@@ -223,7 +223,7 @@ export default function DoctorView() {
           <button className="btn" onClick={() => setShowForm(true)}>
             Añadir Paciente
           </button>
-          <button className='btn' onClick={descargarReporteGeneral}>Descargar reporte general (.xlsx)</button>
+          <button className='btn' onClick={descargarReporteGeneral}>Descargar reporte general (.xlsx)📋</button>
           <button className="btn" onClick={handleLogout}>
             Salir
           </button>

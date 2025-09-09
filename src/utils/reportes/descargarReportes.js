@@ -1,22 +1,36 @@
-const XLSX = require('xlsx');
+import XLSX from 'xlsx';
 import axios from 'axios';
 
 const urlStudies = 'http://localhost:5000/estudios';
-const nameGralReport = 'reporte_gral_todos_los_pacientes.xlsx';
+const nameGralReport = 'reporte_gral_todos_los_pacientes';
+const namePatientReport = 'reporte_paciente_';
+const XLSX_ending = '.xlsx';
+
+function convertirJSONaXLSX(data, fileName) {
+  const worksheet = XLSX.utils.json_to_sheet(data);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet);
+  XLSX.writeFile(workbook, fileName);
+}
 
 export async function descargarReporteGeneral() {
-  // Hacer el request de todos los estudios con axios
-  const response = await axios.get(urlStudies); // await p/ no dejar la promesa de axios pendiente
-  console.log('response: '+response);
-  const data = response.data;
+  try {
+    const response = await axios.get(urlStudies); // await p/evitar dejar pendiente la promesa de axios
+    const data = response.data;
+    convertirJSONaXLSX(data, `${nameGralReport}${XLSX_ending}`);
+    console.log('Reporte general descargado como', nameGralReport);
+  } catch (error) {
+    console.error('Error al descargar el reporte general:', error);
+  }
+}
 
-  // Falta agregar la cant de imagenes en cada estudio
-
-  console.log('data: '+data);
-
-  const worksheet = XLSX.utils.json_to_sheet(data); // Datos en hoja de calculo
-  const workbook = XLSX.utils.book_new(); 
-  XLSX.utils.book_append_sheet(workbook, worksheet);
-
-  XLSX.writeFile(workbook, nameGralReport);
+export async function descargarReportePaciente(nss) {
+  try {
+    const response = await axios.get(`${urlStudies}/${nss}`);
+    const data = response.data;
+    convertirJSONaXLSX(data, `${namePatientReport}${nss}${XLSX_ending}`);
+    console.log('Reporte del paciente descargado como', `${namePatientReport}${nss}${XLSX_ending}`);
+  } catch (error) {
+    console.error(`Error al descargar el reporte del paciente ${nss}:`, error);
+  }
 }

@@ -19,6 +19,8 @@ import DescripcionEstudio from "./modals/DescripcionEstudio";
 // import VTKVolumeViewer from "./VTKVolumeViewer";
 // import { loadMaskFiles } from "../utils/loadMaskfiles";
 
+import { descargarReportePaciente } from "../utils/reportes/descargarReportes";
+
 // ---- Cornerstone config (WADO-URI desde backend) ----
 cornerstoneWADOImageLoader.external.cornerstone = cornerstone;
 cornerstoneWADOImageLoader.external.dicomParser = dicomParser;
@@ -384,7 +386,7 @@ export default function ViewPatient() {
           {/* Panel izquierdo: info paciente */}
           <div style={{ flex: "1", maxWidth: "350px" }}>
             <section className="card">
-              <h2>Información del Paciente</h2>
+              <h2>Información del Paciente J</h2>
               <div className="form-group">
                 <label>NSS</label>
                 <input value={record.nss} disabled />
@@ -415,6 +417,9 @@ export default function ViewPatient() {
                 />
               </div>
               <div className="actions">
+                <button className="btn" onClick={() => descargarReportePaciente(record.nss)}>
+                  Descargar reporte (.xlsx) 📋
+                </button>
                 <button className="btn" onClick={() => navigate(-1)}>
                   Volver
                 </button>
