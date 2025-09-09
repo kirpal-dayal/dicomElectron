@@ -8,7 +8,24 @@ module.exports = (app) => {
 
     //Obtener todos los estudios p/ el reporte gral
     app.get(ENDPOINT, (req, res) => { // Dejar req por convencion de express
-        const query = 'SELECT * FROM estudio';
+        const query = `SELECT 
+        e.fecha,
+            e.nss_expediente,
+            e.descripcion,
+            e.volumen_automatico,
+            e.volumen_manual,
+            COUNT(i.nss_exp) AS num_imgs
+        FROM 
+    estudio AS e
+RIGHT JOIN 
+    imagen AS i ON e.nss_expediente = i.nss_exp AND e.fecha = i.fecha_estudio
+GROUP BY
+        e.fecha,
+            e.nss_expediente,
+            e.descripcion,
+            e.volumen_automatico,
+            e.volumen_manual;
+        `;
         db.query(query, (err, results) => {
             if (err) {
                 console.log(err);
@@ -38,20 +55,20 @@ module.exports = (app) => {
         });
     });
 
-        // Modificar la descripcion de un estudio
-        app.patch(ENDPOINT + '/descripcion', (req, res) => {
-            console.log("llegue al patch");
-            const { nss_expediente, fecha, descripcion } = req.body;
-            if (!nss_expediente || !fecha) {
-                return res.status(400).send('Faltan parámetros');
+    // Modificar la descripcion de un estudio
+    app.patch(ENDPOINT + '/descripcion', (req, res) => {
+        console.log("llegue al patch");
+        const { nss_expediente, fecha, descripcion } = req.body;
+        if (!nss_expediente || !fecha) {
+            return res.status(400).send('Faltan parámetros');
+        }
+        const query = 'UPDATE estudio SET descripcion = ? WHERE nss_expediente = ? AND fecha = ?';
+        db.query(query, [descripcion, nss_expediente, fecha], (err, result) => {
+            if (err) {
+                console.error(err);
+                return res.status(500).send('Error al actualizar la descripción');
             }
-            const query = 'UPDATE estudio SET descripcion = ? WHERE nss_expediente = ? AND fecha = ?';
-            db.query(query, [descripcion, nss_expediente, fecha], (err, result) => {
-                if (err) {
-                    console.error(err);
-                    return res.status(500).send('Error al actualizar la descripción');
-                }
-                res.json({ ok: true });
-            });
+            res.json({ ok: true });
         });
-    };
+    });
+};
