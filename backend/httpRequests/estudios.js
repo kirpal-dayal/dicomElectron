@@ -34,7 +34,7 @@ module.exports = (app) => {
             if (results.length === 0) {
                 return res.status(404).send('Estudio no encontrado');
             }
-            res.json(results[0]); // Devolver el estudio encontrado
+            res.json(results); // Devolver el estudio encontrado
         });
     });
 
