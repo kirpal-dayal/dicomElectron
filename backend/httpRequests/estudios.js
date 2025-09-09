@@ -9,18 +9,18 @@ module.exports = (app) => {
     //Obtener todos los estudios p/ el reporte gral
     app.get(ENDPOINT, (req, res) => { // Dejar req por convencion de express
         const query = `SELECT 
-        e.fecha,
+            e.fecha,
             e.nss_expediente,
             e.descripcion,
             e.volumen_automatico,
             e.volumen_manual,
             COUNT(i.nss_exp) AS num_imgs
-        FROM 
-    estudio AS e
-RIGHT JOIN 
-    imagen AS i ON e.nss_expediente = i.nss_exp AND e.fecha = i.fecha_estudio
-GROUP BY
-        e.fecha,
+            FROM 
+                estudio AS e
+            RIGHT JOIN 
+                imagen AS i ON e.nss_expediente = i.nss_exp AND e.fecha = i.fecha_estudio
+            GROUP BY
+            e.fecha,
             e.nss_expediente,
             e.descripcion,
             e.volumen_automatico,
@@ -42,7 +42,27 @@ GROUP BY
         if (!nss) {
             return res.status(400).send('Falta el NSS del paciente');
         }
-        const query = 'SELECT * FROM estudio WHERE nss_expediente = ?';
+        const query = `
+            SELECT 
+                e.fecha, 
+                e.nss_expediente, 
+                e.descripcion, 
+                e.volumen_automatico, 
+                e.volumen_manual, 
+                COUNT(i.nss_exp) AS num_imgs
+            FROM 
+                estudio AS e
+            RIGHT JOIN 
+                imagen AS i ON e.nss_expediente = i.nss_exp AND e.fecha = i.fecha_estudio
+            WHERE 
+                i.nss_exp = ?  
+            GROUP BY 
+                e.fecha, 
+                e.nss_expediente, 
+                e.descripcion, 
+                e.volumen_automatico, 
+                e.volumen_manual;
+        `;
         db.query(query, [nss], (err, results) => {
             if (err) {
                 console.error(err);
