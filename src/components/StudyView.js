@@ -190,10 +190,6 @@ export default function StudyView() {
       .finally(() => setLoading(false));
   }, [folder]);
 
-  useEffect(() => {
-    draggingIndexRef.current = draggingIndex;
-  }, [draggingIndex]);
-
   // ---------- Spacing global al tener dicomList ----------
   useEffect(() => {
     (async () => {
@@ -215,60 +211,6 @@ export default function StudyView() {
     const element = viewerRef.current;
     if (!element || selectedIndex === null || !dicomList[selectedIndex]) return;
 
-    try {
-      if (!isViewerEnabledRef.current) {
-        try {
-          cornerstone.enable(element);
-          isViewerEnabledRef.current = true;
-        } catch (e) {
-          console.warn("No se pudo habilitar el viewer:", e);
-        }
-      }
-
-      const imageId = `wadouri:${window.location.origin}${dicomList[selectedIndex]}`;
-
-      cornerstone.loadAndCacheImage(imageId)
-        .then(image => {
-          cornerstone.displayImage(element, image);
-
-          // Spacing / dims
-          const { pixelSpacing, sliceThickness } = extractSpacingFromImage(image);
-          const spacingArr = [
-            parseFloat(pixelSpacing?.col ?? pixelSpacing?.x ?? 1) || 1,
-            parseFloat(pixelSpacing?.row ?? pixelSpacing?.y ?? 1) || 1,
-            parseFloat(sliceThickness ?? image?.data?.string?.('x00180050') ?? 1) || 1,
-          ];
-          const dimsArr = [
-            image?.columns || image?.width || 0,
-            image?.rows    || image?.height || 0,
-            dicomList.length || 0,
-          ];
-          setDicomSpacing({ row: spacingArr[1], col: spacingArr[0], slice: spacingArr[2] });
-          setDims3D(dimsArr);
-
-          // Ajustar viewport (zoom actual)
-          const viewport = cornerstone.getDefaultViewportForImage(element, image);
-          viewport.scale = scale;
-
-          // --------- NUEVO: inicializar WW/WL desde la imagen si existen ----------
-          const imgWL = num(image.windowCenter, -600);
-          const imgWW = Math.max(1, num(image.windowWidth, 1500));
-          // Respetar estado actual si ya lo cambió el usuario, pero al primer load sincroniza
-          setWindowCenter((prev) => prev ?? imgWL);
-          setWindowWidth((prev)  => prev  ?? imgWW);
-          viewport.voi = { windowCenter: windowCenter ?? imgWL, windowWidth: windowWidth ?? imgWW };
-
-          cornerstone.setViewport(element, viewport);
-          drawOverlayLines();
-        })
-        .catch(err => {
-          console.error("Error al cargar imagen:", err);
-        });
-
-    } catch (err) {
-      console.error("Error inesperado en displayImage:", err);
-    }
-  }, [selectedIndex, dicomList, scale]);
     try {
       if (!isViewerEnabledRef.current) {
         cornerstone.enable(element);
@@ -312,117 +254,8 @@ export default function StudyView() {
     }
   }, [selectedIndex, dicomList, scale, windowCenter, windowWidth]);
 
-  // Redibuja cada vez que cambien layers o scale
   // Redibuja en cambios de layers/zoom/slice
   useEffect(() => {
-    const element = viewerRef.current;
-    if (!element) return;
-    try {
-      cornerstone.getEnabledElement(element);
-      drawOverlayLines();
-    } catch {}
-  }, [layers, scale, selectedIndex]);
-
-  // --------- NUEVO: aplicar VOI cuando cambian sliders WW/WL HU ----------
-  useEffect(() => {
-    const el = viewerRef.current;
-    if (!el || selectedIndex === null) return;
-    applyVOI(el, windowCenter, windowWidth);
-  }, [windowCenter, windowWidth, selectedIndex]);
-
-  useEffect(() => {
-    const fetchAllEditableLayers = async () => {
-      try {
-        const { data: validIndexMap } = await axios.get(`/api/segment/valid-indices/${folder}`);
-
-        const totalSlices = dicomList.length;
-        const layersPorSlice = new Array(totalSlices).fill(null);
-
-        const entries = Object.entries(validIndexMap);
-        const fetches = entries.map(async ([indexStr, filename]) => {
-          const index = parseInt(indexStr);
-          const padded = String(index).padStart(3, '0');
-
-          const [modelo, editable] = await Promise.all([
-            axios.get(`/api/segment/mask-json/${folder}/${padded}`).then(res => res.data).catch(() => null),
-            axios.get(`/api/segment/mask-json/${folder}/${padded}_simplified`).then(res => res.data).catch(() => null)
-          ]);
-
-          const layers = [];
-
-          if (modelo) {
-            layers.push({
-              name: "Pulmón (modelo)",
-              points: modelo.lung || [],
-              visible: true,
-              color: "lime",
-              closed: true,
-              editable: false
-            });
-            layers.push({
-              name: "Fibrosis (modelo)",
-              points: modelo.fibrosis || [],
-              visible: true,
-              color: "red",
-              closed: true,
-              editable: false
-            });
-          }
-
-          if (editable) {
-            layers.push({
-              name: "Pulmón (editable)",
-              points: editable.lung_editable || [],
-              visible: true,
-              color: "yellow",
-              closed: true,
-              editable: true
-            });
-            layers.push({
-              name: "Fibrosis (editable)",
-              points: editable.fibrosis_editable || [],
-              visible: true,
-              color: "orange",
-              closed: true,
-              editable: true
-            });
-          }
-
-          layersPorSlice[index] = layers;
-        });
-
-        await Promise.all(fetches);
-
-        const firstImageId = `wadouri:${window.location.origin}${dicomList[0]}`;
-        const image = await cornerstone.loadAndCacheImage(firstImageId);
-        const { pixelSpacing, sliceThickness } = extractSpacingFromImage(image);
-        const volumenGlobal = calcularVolumenEditableGlobal(layersPorSlice, pixelSpacing, sliceThickness);
-        setEditableVolumen(volumenGlobal);
-
-        setAllLayersPerSlice(layersPorSlice);
-      } catch (err) {
-        console.error("Error al cargar capas del modelo:", err);
-      }
-    };
-
-    if (dicomList.length > 0) {
-      fetchAllEditableLayers();
-    }
-  }, [dicomList, folder]);
-
-  useEffect(() => {
-    const fetchVolumen = async () => {
-      try {
-        const response = await axios.get(`/api/segment/volumen/${folder}`);
-        setVolumenes(response.data);
-      } catch (err) {
-        console.warn("No se pudo cargar volumenes.json:", err);
-        setVolumenes(null);
-      }
-    };
-    fetchVolumen();
-  }, [folder]);
-
     const element = viewerRef.current;
     if (!element) return;
     try { cornerstone.getEnabledElement(element); drawOverlayLines(); } catch {}
@@ -557,23 +390,6 @@ useEffect(() => {
   };
 
   useEffect(() => {
-    if (selectedIndex !== null && allLayersPerSlice[selectedIndex]) {
-      setLayers(allLayersPerSlice[selectedIndex]);
-
-      const currentSliceLayers = allLayersPerSlice[selectedIndex];
-      if (
-        selectedLayerIndex == null || 
-        !currentSliceLayers[selectedLayerIndex] || 
-        !currentSliceLayers[selectedLayerIndex].editable
-      ) {
-        const firstEditable = currentSliceLayers.findIndex(l => l.editable);
-        if (firstEditable !== -1) {
-          setSelectedLayerIndex(firstEditable);
-        }
-      }
-    }
-  }, [selectedIndex, allLayersPerSlice]);
-
     (async () => {
       try {
         const { data } = await axios.get(`/api/segment/volumen/${folder}`);
@@ -758,14 +574,7 @@ useEffect(() => {
     const element = viewerRef.current;
     const canvas = overlayRef.current;
     if (!element || !canvas || wasDragging) return;
-    const element = viewerRef.current;
-    const canvas = overlayRef.current;
-    if (!element || !canvas || wasDragging) return;
 
-    const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    const imagePoint = cornerstone.canvasToPixel(element, { x, y });
     const rect = canvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
@@ -883,7 +692,6 @@ useEffect(() => {
       const isMulti = Array.isArray(layer.points[0]);
       const polygons = isMulti ? layer.points : [layer.points];
 
-
       for (let pIdx = 0; pIdx < polygons.length; pIdx++) {
         const screenPoints = polygons[pIdx].map((p) => cornerstone.pixelToCanvas(element, p));
         screenPoints.forEach((pt, i) => {
@@ -894,7 +702,6 @@ useEffect(() => {
         });
       }
     };
-
 
     const handleMouseMove = (e) => {
       // Pan con botón medio
@@ -948,7 +755,6 @@ useEffect(() => {
     const stopInteraction = async () => {
       setDraggingIndex(null);
       draggingIndexRef.current = null;
-      draggingIndexRef.current = null;
       setIsPanning(false);
       setLastPanPosition(null);
 
@@ -958,13 +764,11 @@ useEffect(() => {
       }
     };
 
-
     canvas.addEventListener("mousedown", handleMouseDown);
     canvas.addEventListener("mousemove", handleMouseMove);
     canvas.addEventListener("mouseup", stopInteraction);
     canvas.addEventListener("mouseleave", stopInteraction);
     canvas.addEventListener("contextmenu", (e) => e.preventDefault());
-
 
     return () => {
       canvas.removeEventListener("mousedown", handleMouseDown);
@@ -995,10 +799,6 @@ useEffect(() => {
   const huMax = Math.round(windowCenter + windowWidth / 2);
 
   return (
-    <>
-      <div style={{ padding: "2rem" }}>
-        <h2>Estudio - {fechaOriginal}</h2>
-        <button onClick={() => navigate(-1)}>← Volver</button>
     <>
       <div style={{ padding: "2rem" }}>
         <h2>Estudio - {fechaOriginal}</h2>
