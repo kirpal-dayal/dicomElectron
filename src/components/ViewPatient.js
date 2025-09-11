@@ -19,6 +19,8 @@ import DescripcionEstudio from "./modals/DescripcionEstudio";
 // import VTKVolumeViewer from "./VTKVolumeViewer";
 // import { loadMaskFiles } from "../utils/loadMaskfiles";
 
+import { descargarReportePaciente } from "../utils/reportes/descargarReportes";
+
 // ---- Cornerstone config (WADO-URI desde backend) ----
 cornerstoneWADOImageLoader.external.cornerstone = cornerstone;
 cornerstoneWADOImageLoader.external.dicomParser = dicomParser;

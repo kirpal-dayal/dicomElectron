@@ -3,7 +3,10 @@ import { createVolumeFromContours } from './rasterizeContours';
 export async function loadMaskFiles(pathFiles) { // para el futuro pasar argumento en lugar de definirlo abajo con req
     console.log("entra a loadMaskFiles");
     const req = require.context('../../public/mask02', false, /simplified\.json$/); //(directorio, se va a buscar en subdirs?, regExp, modo -def: sync-)
+<<<<<<< HEAD
     console.log("entro a public");
+=======
+>>>>>>> origin/reportes
     const files = req.keys().map((key) => 'mask02/' + key.replace('./', ''));
     const layers = [];
     const fibrosisLayers = [];

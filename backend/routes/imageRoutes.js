@@ -34,7 +34,11 @@ const path     = require('path');
 const unzipper = require('unzipper');
 const db       = require('../connectionDb');
 const { nameDirectoryDicom } = require('../configConst');
+<<<<<<< HEAD
 
+=======
+const { exec } = require('child_process'); // Para ejecutar scripts Python 
+>>>>>>> origin/reportes
 const router = express.Router();
 const { guardarMascarasEnBD } = require('./segmentRoutes'); // Importa la función para guardar máscaras
 /**

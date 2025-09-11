@@ -50,4 +50,7 @@ venv_mod/
 
 # Poner los recursos de mask02 estaticos para luego cambiarlos y recuperarlos desde la BD
 public/mask02/
+<<<<<<< HEAD
 backend/segmentation/best_result.hdf5
+=======
+>>>>>>> origin/reportes
