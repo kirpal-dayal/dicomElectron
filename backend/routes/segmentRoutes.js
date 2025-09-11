@@ -244,16 +244,31 @@ function guardarMascarasEnBD(folder, nss, fechaSQL) {
 }
 
 // ====== GET /api/segment/valid-indices/:folder (opcional legacy) ======
-router.get("/valid-indices/:folder", async (req, res) => {
-  const folder = req.params.folder;
-  const filePath = path.join(__dirname, "..", "temp", folder, "segmentaciones_por_dicom", "valid_indices.json");
-  try {
-    const txt = fs.readFileSync(filePath, "utf-8");
-    res.json(JSON.parse(txt));
-  } catch (err) {
-    res.status(404).json({ error: "Archivo valid_indices.json no encontrado." });
-  }
+// backend/routes/segmentRoutes.js
+router.get("/valid-indices/:folder", (req, res) => {
+  const parsed = parseFolder(req.params.folder);
+  if (!parsed) return res.status(400).json({ error: "folder inválido" });
+
+  const sql = `
+    SELECT DISTINCT num_tomo
+      FROM mascara
+     WHERE nss_exp=? AND fecha_estudio=?
+       AND clase IN ('pulmon','fibrosis')
+       AND tipo IN ('manual','automatica')
+     ORDER BY num_tomo ASC
+  `;
+  db.query(sql, [parsed.nss, parsed.fechaSQL], (err, rows) => {
+    if (err) {
+      console.error('[valid-indices] DB error:', err.message);
+      return res.status(500).json({ error: 'DB error' });
+    }
+    // front usa 0-based; convertimos aquí
+    const map = {};
+    for (const r of rows) map[r.num_tomo - 1] = true;
+    res.json(map);
+  });
 });
+
 
 // ====== GET /api/segment/mask-db/:nss/:fecha/:index ======
 // Front manda :index 0-based; BD usa num_tomo 1-based

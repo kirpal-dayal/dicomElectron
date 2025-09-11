@@ -1,60 +1,32 @@
 /**
-<<<<<<< Updated upstream
- * StudyView.js 
- * Componente React para visualizar estudios médicos (DICOM) de un paciente.
- * - Carga y muestra las imágenes DICOM de un estudio específico (basado en el NSS y la fecha recibidos en la URL).
- * - Utiliza Cornerstone y cornerstone-wado-image-loader para renderizar imágenes médicas directamente en el navegador.
- * - Muestra una galería de miniaturas, permite ver cada imagen a pantalla completa y navegar entre ellas, quizas se deba pensar en el tamano
- * - Permite volver al historial de estudios desde la misma vista.
- * - Permite dibujar figuras en una capa independiente haciendo clic sobre los vértices.
- *
- * - Solicita la lista de archivos DICOM al backend (/api/image/dicom-list/:folder) usando Axios.
- * - Descarga cada archivo DICOM al abrirlo y lo procesa usando Cornerstone.
- * - Se espera que la API backend proporcione acceso seguro a los archivos.
- * - La navegación depende de React Router (useNavigate, useParams).
- * 
- * - El backend debe exponer los endpoints REST indicados que están en imageRoutes en backend.
- * - Este componente es autónomo visualmente y no depende de otros componentes salvo la navegación.
-Guardas y dibujas las coordenadas en espacio de imagen (image coordinates).
+ * StudyView.js
+ * Visor DICOM con edición de contornos y cálculo de volúmenes.
+ */
 
-Al dibujar, conviertes esas coordenadas con cornerstone.pixelToCanvas(...) para que respondan al zoom/viewport.
-canvas overlay (overlayCanvasRef) no está sincronizado en tamaño real con el elemento de visualización de Cornerstone (viewerRef)
-Usar transform: scale() rompe las coordenadas relativas entre DICOM y el overlay canvas.
-no estás usando padding, border o margin en .fullscreen-viewer y .overlay-canvas. 
-Se borran los puntos con alt click
-Las coordenadas automaticas del modelo vienen de back/segment.py
-Carga automáticamente los mask_{index}.json según la imagen actual.
-Dibuja los contornos en capas independientes y permite ocultarlas.
-Puedes editar, limpiar, navegar entre slices, y aplicar zoom correctamente.
-
-npm install simplify-js 
-*/
-
-import React, { useEffect, useRef, useState, useLayoutEffect } from "react";
-
+import React, { useEffect, useRef, useState, useLayoutEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import axios from "axios";
 import * as cornerstone from "cornerstone-core";
 import * as cornerstoneWADOImageLoader from "cornerstone-wado-image-loader";
 import * as dicomParser from "dicom-parser";
+
 import {
   extractSpacingFromImage,
-
-  calcularVolumenEditableGlobal
-} from "./volumenCalculator"; // Importa las funciones de cálculo de área y volumen desde volumenCalculator.js
-
   calcularVolumenEditableGlobal,
   enviarVolumenABackend,
 } from "./volumenCalculator";
 
+// ---------- Cornerstone setup ----------
 cornerstoneWADOImageLoader.external.cornerstone = cornerstone;
 cornerstoneWADOImageLoader.external.dicomParser = dicomParser;
 cornerstoneWADOImageLoader.configure({ beforeSend: () => {} });
 
+// ---------- helpers ----------
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const num = (v, d = 0) => (Array.isArray(v) ? (+v[0] || d) : (+v || d));
+const THRESH = 6;
 
-/** Calcula un slice spacing robusto con IPP+IOP a partir de 2 imágenes del stack */
+/** Spacing robusto para todo el stack (row/col y delta entre cortes). */
 async function getRobustStackSpacing(dicomList) {
   if (!dicomList || dicomList.length < 1) return null;
 
@@ -63,36 +35,34 @@ async function getRobustStackSpacing(dicomList) {
 
   const img0 = await load(dicomList[0]);
 
-  // PixelSpacing (fila/col)
-  let row = Number(img0.rowPixelSpacing) || NaN;
-  let col = Number(img0.columnPixelSpacing) || NaN;
+  // PixelSpacing
+  let row = Number(img0.rowPixelSpacing);
+  let col = Number(img0.columnPixelSpacing);
   if (!Number.isFinite(row) || !Number.isFinite(col)) {
     const pxStr = img0?.data?.string?.("x00280030");
     if (pxStr) {
       const parts = pxStr.split("\\").map(Number);
-      row = Number.isFinite(parts[0]) ? parts[0] : row;
-      col = Number.isFinite(parts[1]) ? parts[1] : col;
+      if (!Number.isFinite(row) && Number.isFinite(parts[0])) row = parts[0];
+      if (!Number.isFinite(col) && Number.isFinite(parts[1])) col = parts[1];
     }
   }
   if (!Number.isFinite(row)) row = 1;
   if (!Number.isFinite(col)) col = 1;
 
-  // Si hay al menos 2, intentamos ΔZ usando IOP/IPP
-  let slice = 1;
+  // Slice spacing
+  let slice = NaN;
   if (dicomList.length >= 2) {
     const img1 = await load(dicomList[1]);
-
     const parseVec3 = (s) => {
       if (!s) return null;
       const v = s.split("\\").map(Number);
-      return v.length >= 3 && v.every(Number.isFinite) ? [v[0], v[1], v[2]] : null;
+      return v.length >= 3 && v.every(Number.isFinite) ? v.slice(0, 3) : null;
     };
     const parse6 = (s) => {
       if (!s) return null;
       const v = s.split("\\").map(Number);
       return v.length >= 6 && v.every(Number.isFinite) ? v.slice(0, 6) : null;
     };
-
     const ippA = parseVec3(img0?.data?.string?.("x00200032"));
     const ippB = parseVec3(img1?.data?.string?.("x00200032"));
     const iop =
@@ -112,7 +82,6 @@ async function getRobustStackSpacing(dicomList) {
       if (Number.isFinite(dot) && dot > 0) slice = dot;
     }
 
-    // Fallbacks
     if (!Number.isFinite(slice) || slice <= 0) {
       if (ippA && ippB) {
         const dz = Math.abs(ippB[2] - ippA[2]);
@@ -124,18 +93,14 @@ async function getRobustStackSpacing(dicomList) {
   if (!Number.isFinite(slice) || slice <= 0) {
     const sbs = Number(img0?.data?.string?.("x00180088")); // SpacingBetweenSlices
     const thk = Number(img0?.data?.string?.("x00180050")); // SliceThickness
-    slice =
-      (Number.isFinite(sbs) && sbs > 0 && sbs) ||
-      (Number.isFinite(thk) && thk > 0 && thk) ||
-      1;
+    slice = Number.isFinite(sbs) && sbs > 0 ? sbs :
+            Number.isFinite(thk) && thk > 0 ? thk : 1;
   }
 
-  return {
-    pixelSpacing: { row, col },
-    sliceSpacing: Math.abs(slice),
-  };
+  return { pixelSpacing: { row, col }, sliceSpacing: Math.abs(slice) };
 }
 
+// ---------- Component ----------
 export default function StudyView() {
   const { id: nss, studyNumber } = useParams();
   const fechaOriginal = decodeURIComponent(studyNumber);
@@ -144,47 +109,29 @@ export default function StudyView() {
   const folder = `${nss}_${safeFecha}`;
   const navigate = useNavigate();
 
-  const viewerRef = useRef();
-  const overlayRef = useRef();
+  const viewerRef = useRef(null);
+  const overlayRef = useRef(null);
 
+  // estado principal
   const [dicomList, setDicomList] = useState([]);
   const [selectedIndex, setSelectedIndex] = useState(null);
   const [allLayersPerSlice, setAllLayersPerSlice] = useState([]);
   const [layers, setLayers] = useState([]);
+  const [selectedLayerIndex, setSelectedLayerIndex] = useState(0);
+
   const [scale, setScale] = useState(1);
-  const [draggingIndex, setDraggingIndex] = useState(null);
-
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [selectedLayerIndex, setSelectedLayerIndex] = useState(0);
-  const [wasDragging, setWasDragging] = useState(false);
-
-  const [dicomSpacing, setDicomSpacing] = useState({ row: 1, col: 1, slice: 1 });
-  const [dims3D, setDims3D] = useState([0, 0, 0]);
-
-  const [originalContours, setOriginalContours] = useState([]);
-  const [editableContours, setEditableContours] = useState([]);
-  const [totalArea, setTotalArea] = useState(0);
-  const draggingIndexRef = useRef(null);
-
-  const fechaOriginal = decodeURIComponent(studyNumber);
-  const safeFecha = fechaOriginal.replace(/[:\. ]/g, "_");
-  const folder = `${nss}_${safeFecha}`;
-
-  const draggingIndexRef = useRef(null);
-  const [wasDragging, setWasDragging] = useState(false);
-
-  const [selectedLayerIndex, setSelectedLayerIndex] = useState(0);
-
   const [isPanning, setIsPanning] = useState(false);
   const [lastPanPosition, setLastPanPosition] = useState(null);
 
-  const [volumenes, setVolumenes] = useState(null); //estado para los volúmenes
+  const [draggingIndex, setDraggingIndex] = useState(null);
+  const draggingIndexRef = useRef(null);
+  const [wasDragging, setWasDragging] = useState(false);
 
-  const [dicomSpacing, setDicomSpacing] = useState({ row: null, col: null, slice: null });
-  const [volumenes, setVolumenes] = useState(null);
+  const [dicomSpacing, setDicomSpacing] = useState({ row: 1, col: 1, slice: 1 });
 
   const [editableVolumen, setEditableVolumen] = useState(null);
+  const [autoVol, setAutoVol] = useState(null);
+  const autoSavedRef = useRef(false);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -193,23 +140,8 @@ export default function StudyView() {
 
   const [windowWidth, setWindowWidth] = useState(1500);
   const [windowCenter, setWindowCenter] = useState(-600);
-  // arriba, junto con otros useState
-  const [autoVol, setAutoVol] = useState(null);
-  // const autoSavedRef = useRef(false);
-  // util local para normalizar
-  const normalizeAuto = (d) => {
-    const lung = Number(d?.lung_volume_ml ?? d?.lung ?? d?.lung_ml);
-    const fib  = Number(d?.fibrosis_volume_ml ?? d?.fibrosis ?? d?.fibrosis_ml);
-    const total = Number(d?.total_volume_ml ?? d?.total ?? d?.total_ml);
-    return {
-      lung: Number.isFinite(lung) ? lung : null,
-      fibrosis: Number.isFinite(fib) ? fib : null,
-      total: Number.isFinite(total) ? total : null,
-    };
-  };
 
-
-  // Mantener estados “frescos” dentro de los handlers
+  // ---------- refs “frescos” para handlers ----------
   const layersRef = useRef(layers);
   useEffect(() => { layersRef.current = layers; }, [layers]);
 
@@ -219,53 +151,32 @@ export default function StudyView() {
   const wasDraggingRef = useRef(wasDragging);
   useEffect(() => { wasDraggingRef.current = wasDragging; }, [wasDragging]);
 
-  // Recalcula el volumen global usando un snapshot del slice actual (sin guardar en backend)
-  const recalcGlobalVolumeInstant = React.useCallback((sliceIdx, newSliceLayers) => {
-    const px = { row: Number(dicomSpacing.row) || 1, col: Number(dicomSpacing.col) || 1 };
-    const dz = Number(dicomSpacing.slice) || 1;
-    if (!px.row || !px.col || !dz) return;
+  useEffect(() => { draggingIndexRef.current = draggingIndex; }, [draggingIndex]);
 
-    const updatedAll = [...(allLayersPerSliceRef.current || [])];
-    updatedAll[sliceIdx] = newSliceLayers;
-
-    const v = calcularVolumenEditableGlobal(updatedAll, px, dz);
-    if (v) setEditableVolumen(v);
-  }, [dicomSpacing.row, dicomSpacing.col, dicomSpacing.slice]);
-
-  // --------- VOI helpers ---------
+  // ---------- VOI helpers ----------
   const applyVOI = (el, wl, ww) => {
     if (!el) return;
     try {
       const vp = cornerstone.getViewport(el);
       vp.voi = { windowCenter: wl, windowWidth: Math.max(1, ww) };
       cornerstone.setViewport(el, vp);
-    } catch {}
+    } catch {
+      // noop
+    }
   };
 
   const setPreset = (preset) => {
-    let wl = windowCenter,
-      ww = windowWidth;
-    if (preset === "lung") {
-      wl = -600;
-      ww = 1500;
-    }
-    if (preset === "ggo") {
-      wl = -500;
-      ww = 700;
-    }
-    if (preset === "soft") {
-      wl = 50;
-      ww = 400;
-    }
-    if (preset === "bone") {
-      wl = 300;
-      ww = 1500;
-    }
+    let wl = windowCenter, ww = windowWidth;
+    if (preset === "lung") { wl = -600; ww = 1500; }
+    if (preset === "ggo")  { wl = -500; ww =  700; }
+    if (preset === "soft") { wl =   50; ww =  400; }
+    if (preset === "bone") { wl =  300; ww = 1500; }
     setWindowCenter(wl);
     setWindowWidth(ww);
     applyVOI(viewerRef.current, wl, ww);
   };
-  // --------- Cargar lista DICOM ---------
+
+  // ---------- Cargar lista DICOM ----------
   useEffect(() => {
     axios
       .get(`/api/image/dicom-list/${folder}`)
@@ -279,16 +190,10 @@ export default function StudyView() {
       .finally(() => setLoading(false));
   }, [folder]);
 
-  useEffect(() => {
-    draggingIndexRef.current = draggingIndex;
-  }, [draggingIndex]); // sincroniza draggingIndexRef en cada cambio
-
-  // --------- Calcular spacing global una vez que tengamos dicomList ---------
+  // ---------- Spacing global al tener dicomList ----------
   useEffect(() => {
     (async () => {
       if (dicomList.length < 1) return;
-
-      // Spacing robusto del stack
       const robust = await getRobustStackSpacing(dicomList);
       if (robust) {
         setDicomSpacing({
@@ -296,16 +201,12 @@ export default function StudyView() {
           col: robust.pixelSpacing.col,
           slice: robust.sliceSpacing,
         });
-        console.info("[STACK] Spacing fijado →", {
-          row: robust.pixelSpacing.row,
-          col: robust.pixelSpacing.col,
-          slice: robust.sliceSpacing,
-        });
+        console.info("[STACK] Spacing →", robust);
       }
     })();
   }, [dicomList]);
 
-  // --------- Mostrar imagen seleccionada ---------
+  // ---------- Mostrar imagen seleccionada ----------
   useEffect(() => {
     const element = viewerRef.current;
     if (!element || selectedIndex === null || !dicomList[selectedIndex]) return;
@@ -317,34 +218,21 @@ export default function StudyView() {
       }
 
       const imageId = `wadouri:${window.location.origin}${dicomList[selectedIndex]}`;
-  
-      cornerstone.loadAndCacheImage(imageId).then(image => {
-        cornerstone.displayImage(element, image);
-        const viewport = cornerstone.getDefaultViewportForImage(element, image);
-        viewport.scale = scale;
-        cornerstone.setViewport(element, viewport);
-        drawOverlayLines();
-      }).catch(err => {
-        console.error("Error al cargar imagen:", err);
-      });
-    } catch (err) {
-      console.error("Error inesperado en displayImage:", err);
-    }
-  }, [selectedIndex, dicomList, scale]);
-  
-  //redibuje cada vez que cambie layers o scale
 
-      cornerstone
-        .loadAndCacheImage(imageId)
+      cornerstone.loadAndCacheImage(imageId)
         .then((image) => {
           cornerstone.displayImage(element, image);
 
-          // Solo completamos row/col si aún no estaban
-          const { pixelSpacing } = extractSpacingFromImage(image);
+          // Completar row/col si faltan (sin usar ?? con ||)
+          const { pixelSpacing } = extractSpacingFromImage(image) || {};
           setDicomSpacing((prev) => ({
-            row: (prev.row ?? Number(pixelSpacing?.row)) || 1,
-            col: (prev.col ?? Number(pixelSpacing?.col)) || 1,
-            slice: prev.slice ?? 1, // no tocar aquí el slice
+            row: Number.isFinite(prev.row) && prev.row > 0
+              ? prev.row
+              : (Number(pixelSpacing && pixelSpacing.row) || 1),
+            col: Number.isFinite(prev.col) && prev.col > 0
+              ? prev.col
+              : (Number(pixelSpacing && pixelSpacing.col) || 1),
+            slice: Number.isFinite(prev.slice) && prev.slice > 0 ? prev.slice : 1,
           }));
 
           const viewport = cornerstone.getDefaultViewportForImage(element, image);
@@ -353,39 +241,25 @@ export default function StudyView() {
           const imgWL = num(image.windowCenter, -600);
           const imgWW = Math.max(1, num(image.windowWidth, 1500));
           viewport.voi = {
-            windowCenter: windowCenter ?? imgWL,
-            windowWidth: windowWidth ?? imgWW,
+            windowCenter: Number.isFinite(windowCenter) ? windowCenter : imgWL,
+            windowWidth:  Number.isFinite(windowWidth)  ? windowWidth  : imgWW,
           };
 
           cornerstone.setViewport(element, viewport);
           drawOverlayLines();
         })
-        .catch((err) => {
-          console.error("Error al cargar imagen:", err);
-        });
+        .catch((err) => console.error("Error al cargar imagen:", err));
     } catch (err) {
       console.error("Error inesperado en displayImage:", err);
     }
   }, [selectedIndex, dicomList, scale, windowCenter, windowWidth]);
 
-
-  // Redibuja en cambios de layers o zoom
+  // Redibuja en cambios de layers/zoom/slice
   useEffect(() => {
     const element = viewerRef.current;
     if (!element) return;
-    try {
-      cornerstone.getEnabledElement(element);
-      drawOverlayLines();
-    } catch {}
+    try { cornerstone.getEnabledElement(element); drawOverlayLines(); } catch {}
   }, [layers, scale, selectedIndex]);
-
-useEffect(() => {
-  const fetchAllEditableLayers = async () => {
-    try {
-      const { data: validIndexMap } = await axios.get(`/api/segment/valid-indices/${folder}`);
-
-      const totalSlices = dicomList.length;
-      const layersPorSlice = new Array(totalSlices).fill(null);
 
   // Aplicar VOI al cambiar sliders
   useEffect(() => {
@@ -394,247 +268,179 @@ useEffect(() => {
     applyVOI(el, windowCenter, windowWidth);
   }, [windowCenter, windowWidth, selectedIndex]);
 
-  // --------- Cargar capas + volumen inicial ---------
-  useEffect(() => {
-    const fetchAllEditableLayers = async () => {
-      try {
-        const { data: validIndexMap } = await axios.get(
-          `/api/segment/valid-indices/${folder}`
-        );
+  // ---------- Cargar capas + volumen editable inicial ----------
+// helper chiquito para asegurar multi-contour en memoria
+const toMulti = (arr) => Array.isArray(arr?.[0]) ? arr : (Array.isArray(arr) ? [arr] : []);
 
-        const entries = Object.entries(validIndexMap);
-        const fetches = entries.map(async ([indexStr, filename]) => {
-          const index = parseInt(indexStr);
-          const padded = String(index).padStart(3, '0');
+// --------- Cargar capas + volumen inicial ---------
+useEffect(() => {
+  const fetchAllEditableLayers = async () => {
+    try {
+      //  asegúrate que en backend esta ruta ya devuelve índices DESDE BD
+      // (el JSON puede ser { "0": true, "1": true, ... } como antes)
+      const { data: validIndexMap } = await axios.get(
+        `/api/segment/valid-indices/${folder}`
+      );
 
-        const [modelo, editable] = await Promise.all([
-          axios.get(`/api/segment/mask-json/${folder}/${padded}`).then(res => res.data).catch(() => null),
-          axios.get(`/api/segment/mask-json/${folder}/${padded}_simplified`).then(res => res.data).catch(() => null)
-        ]);
+      const totalSlices = dicomList.length;
+      const layersPorSlice = new Array(totalSlices).fill(null);
 
-          const layers = [];
+      await Promise.all(
+        Object.entries(validIndexMap).map(async ([indexStr]) => {
+          const index = parseInt(indexStr, 10);
+          const padded = String(index).padStart(3, "0");
 
+          // Mantenemos "modelo" desde archivo, y cambiamos "editable" a BD
+          const [modelo, dbMask] = await Promise.all([
+            axios
+              .get(`/api/segment/mask-json/${folder}/${padded}`)
+              .then(r => r.data)
+              .catch(() => null),
+            axios
+              .get(`/api/segment/mask-db-by-folder/${folder}/${index}`) // <— NUEVO: BD (prefer manual)
+              .then(r => r.data)
+              .catch(async () => {
+                // fallback a tu JSON _simplified si aún no hay BD
+                try {
+                  const j = await axios.get(`/api/segment/mask-json/${folder}/${padded}_simplified`);
+                  return { lung: j.data?.lung_editable || [], fibrosis: j.data?.fibrosis_editable || [] };
+                } catch {
+                  return null;
+                }
+              }),
+          ]);
+
+          const L = [];
           if (modelo) {
-            layers.push({
+            L.push({
               name: "Pulmón (modelo)",
-              points: modelo.lung || [],
+              points: toMulti(modelo.lung),
               visible: true,
               color: "lime",
               closed: true,
-              editable: false
+              editable: false,
             });
-            layers.push({
+            L.push({
               name: "Fibrosis (modelo)",
-              points: modelo.fibrosis || [],
+              points: toMulti(modelo.fibrosis),
               visible: true,
               color: "red",
               closed: true,
-              editable: false
+              editable: false,
             });
           }
-
-          if (editable) {
-            layers.push({
+          if (dbMask) {
+            L.push({
               name: "Pulmón (editable)",
-              points: editable.lung_editable || [],
+              points: toMulti(dbMask.lung),        // <— viene normalizado desde BD
               visible: true,
               color: "yellow",
               closed: true,
-              editable: true
+              editable: true,
             });
-            layers.push({
+            L.push({
               name: "Fibrosis (editable)",
-              points: editable.fibrosis_editable || [],
+              points: toMulti(dbMask.fibrosis),    // <— idem
               visible: true,
               color: "orange",
               closed: true,
-              editable: true
+              editable: true,
             });
           }
 
-          layersPorSlice[index] = layers;
-        });
+          layersPorSlice[index] = L;
+        })
+      );
 
-        await Promise.all(fetches);
-
-        const firstImageId = `wadouri:${window.location.origin}${dicomList[0]}`;
-        const image = await cornerstone.loadAndCacheImage(firstImageId);
-        const { pixelSpacing, sliceThickness } = extractSpacingFromImage(image);
-        const volumenGlobal = calcularVolumenEditableGlobal(layersPorSlice, pixelSpacing, sliceThickness);
-        setEditableVolumen(volumenGlobal);
-
-        setAllLayersPerSlice(layersPorSlice);
-      } catch (err) {
-        console.error("Error al cargar capas del modelo:", err);
-      }
-    };
-
-  if (dicomList.length > 0) {
-    fetchAllEditableLayers();
-  }
-}, [dicomList, folder]);
-
-        await Promise.all(
-          Object.entries(validIndexMap).map(async ([indexStr]) => {
-            const index = parseInt(indexStr, 10);
-            const padded = String(index).padStart(3, "0");
-
-            const [modelo, editable] = await Promise.all([
-              axios
-                .get(`/api/segment/mask-json/${folder}/${padded}`)
-                .then((r) => r.data)
-                .catch(() => null),
-              axios
-                .get(`/api/segment/mask-json/${folder}/${padded}_simplified`)
-                .then((r) => r.data)
-                .catch(() => null),
-            ]);
-
-            const L = [];
-            if (modelo) {
-              L.push({
-                name: "Pulmón (modelo)",
-                points: modelo.lung || [],
-                visible: true,
-                color: "lime",
-                closed: true,
-                editable: false,
-              });
-              L.push({
-                name: "Fibrosis (modelo)",
-                points: modelo.fibrosis || [],
-                visible: true,
-                color: "red",
-                closed: true,
-                editable: false,
-              });
-            }
-            if (editable) {
-              L.push({
-                name: "Pulmón (editable)",
-                points: editable.lung_editable || [],
-                visible: true,
-                color: "yellow",
-                closed: true,
-                editable: true,
-              });
-              L.push({
-                name: "Fibrosis (editable)",
-                points: editable.fibrosis_editable || [],
-                visible: true,
-                color: "orange",
-                closed: true,
-                editable: true,
-              });
-            }
-
-            layersPorSlice[index] = L;
-          })
-        );
-
-        // Volumen global inicial usando el spacing global (o lo calculamos aquí si aún no está)
-        let px = { row: Number(dicomSpacing.row) || NaN, col: Number(dicomSpacing.col) || NaN };
-        let dz = Number(dicomSpacing.slice) || NaN;
-
-        if (!Number.isFinite(px.row) || !Number.isFinite(px.col) || !Number.isFinite(dz)) {
-          const robust = await getRobustStackSpacing(dicomList);
-          if (robust) {
-            px = { row: robust.pixelSpacing.row, col: robust.pixelSpacing.col };
-            dz = robust.sliceSpacing;
-            setDicomSpacing({ row: px.row, col: px.col, slice: dz });
-          } else {
-            px = { row: 1, col: 1 };
-            dz = 1;
-          }
+      // spacings (igual que antes)
+      let px = { row: Number(dicomSpacing.row), col: Number(dicomSpacing.col) };
+      let dz = Number(dicomSpacing.slice);
+      if (!Number.isFinite(px.row) || !Number.isFinite(px.col) || !Number.isFinite(dz)) {
+        const robust = await getRobustStackSpacing(dicomList);
+        if (robust) {
+          px = { row: robust.pixelSpacing.row, col: robust.pixelSpacing.col };
+          dz = robust.sliceSpacing;
+          setDicomSpacing({ row: px.row, col: px.col, slice: dz });
+        } else {
+          px = { row: 1, col: 1 }; dz = 1;
         }
-
-        const volumenGlobal = calcularVolumenEditableGlobal(layersPorSlice, px, dz);
-        setEditableVolumen(volumenGlobal);
-
-        // Guardar en estado
-        setAllLayersPerSlice(layersPorSlice);
-
-        // No auto-seleccionamos miniatura; el usuario hará click.
-        // Si quisieras autoseleccionar el primer slice con capas:
-        // const firstWithLayers = layersPorSlice.findIndex((arr) => Array.isArray(arr) && arr.length);
-        // if (firstWithLayers !== -1) {
-        //   setSelectedIndex(firstWithLayers);
-        //   setLayers(layersPorSlice[firstWithLayers]);
-        // }
-      } catch (err) {
-        console.error("Error al cargar capas del modelo:", err);
       }
-    };
 
-    if (dicomList.length > 0) fetchAllEditableLayers();
-  }, [dicomList, folder, dicomSpacing.row, dicomSpacing.col, dicomSpacing.slice]);
-
-  // --------- Volúmenes automáticos ---------
-  useEffect(() => {
-    const fetchVolumen = async () => {
-      try {
-        const response = await axios.get(`/api/segment/volumen/${folder}`);
-        setVolumenes(response.data);
-      } catch {
-        setVolumenes(null);
-      }
-    };
-    fetchVolumen();
-  }, [folder]);
-
-  // StudyView.js
-const autoSavedRef = React.useRef(false);
-
-useEffect(() => {
-  (async () => {
-    try {
-      const { data } = await axios.get(`/api/segment/volumen/${folder}`);
-      const auto = normalizeAuto(data);
-      setAutoVol(auto);
-
-      // guarda en BD solo una vez por estudio
-      if (!autoSavedRef.current && auto.total != null) {
-        await enviarVolumenABackend(
-          nss,
-          fechaSQL,
-          auto.total,                      // ahora le pasamos el número directo
-          "Volumen automático (modelo)",
-          false                             // manual=false => volumen_automatico
-        );
-        autoSavedRef.current = true;
-      }
-    } catch (e) {
-      console.warn("No se pudo obtener volumen automático:", e);
-      setAutoVol(null);
+      const volumenGlobal = calcularVolumenEditableGlobal(layersPorSlice, px, dz);
+      setEditableVolumen(volumenGlobal);
+      setAllLayersPerSlice(layersPorSlice);
+    } catch (err) {
+      console.error("Error al cargar capas:", err);
     }
-  })();
-}, [folder, nss, fechaSQL]);
+  };
 
+  if (dicomList.length > 0) fetchAllEditableLayers();
+}, [dicomList, folder, dicomSpacing.row, dicomSpacing.col, dicomSpacing.slice]);
 
+  // ---------- Volumen automático (front + guardar 1 vez en BD) ----------
+  const normalizeAuto = (d) => {
+    const lung = Number(d?.lung_volume_ml ?? d?.lung ?? d?.lung_ml);
+    const fib  = Number(d?.fibrosis_volume_ml ?? d?.fibrosis ?? d?.fibrosis_ml);
+    const total = Number(d?.total_volume_ml ?? d?.total ?? d?.total_ml);
+    return {
+      lung: Number.isFinite(lung) ? lung : null,
+      fibrosis: Number.isFinite(fib) ? fib : null,
+      total: Number.isFinite(total) ? total : null,
+    };
+  };
 
-  // --------- Sincronizar al cambiar de slice ---------
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await axios.get(`/api/segment/volumen/${folder}`);
+        const auto = normalizeAuto(data);
+        setAutoVol(auto);
+
+        if (!autoSavedRef.current && auto.total != null) {
+          await enviarVolumenABackend(
+            nss,
+            fechaSQL,
+            auto.total,
+            "Volumen automático (modelo)",
+            false // manual = false ⇒ volumen_automatico
+          );
+          autoSavedRef.current = true;
+        }
+      } catch (e) {
+        console.warn("No se pudo obtener volumen automático:", e);
+        setAutoVol(null);
+      }
+    })();
+  }, [folder, nss, fechaSQL]);
+
+  // ---------- Al cambiar de slice, sincroniza capas y recalcula preview ----------
+  const recalcGlobalVolumeInstant = useCallback((sliceIdx, newSliceLayers) => {
+    const px = { row: Number(dicomSpacing.row) || 1, col: Number(dicomSpacing.col) || 1 };
+    const dz = Number(dicomSpacing.slice) || 1;
+    const updatedAll = [...(allLayersPerSliceRef.current || [])];
+    updatedAll[sliceIdx] = newSliceLayers;
+    const v = calcularVolumenEditableGlobal(updatedAll, px, dz);
+    if (v) setEditableVolumen(v);
+  }, [dicomSpacing.row, dicomSpacing.col, dicomSpacing.slice]);
+
   useEffect(() => {
     if (selectedIndex !== null && allLayersPerSlice[selectedIndex]) {
-      setLayers(allLayersPerSlice[selectedIndex]);
+      const sliceLayers = allLayersPerSlice[selectedIndex];
+      setLayers(sliceLayers);
+      recalcGlobalVolumeInstant(selectedIndex, sliceLayers);
 
-      recalcGlobalVolumeInstant(selectedIndex, allLayersPerSlice[selectedIndex]);
-      const currentSliceLayers = allLayersPerSlice[selectedIndex];
-      const firstEditable = currentSliceLayers.findIndex((l) => l.editable);
+      const firstEditable = sliceLayers.findIndex((l) => l.editable);
       if (
         selectedLayerIndex == null ||
-        !currentSliceLayers[selectedLayerIndex] ||
-        !currentSliceLayers[selectedLayerIndex].editable
+        !sliceLayers[selectedLayerIndex] ||
+        !sliceLayers[selectedLayerIndex].editable
       ) {
-        if (firstEditable !== -1) {
-          setSelectedLayerIndex(firstEditable);
-        }
+        if (firstEditable !== -1) setSelectedLayerIndex(firstEditable);
       }
     }
-  }, [selectedIndex, allLayersPerSlice]);
-  
-  useEffect(() => {
+  }, [selectedIndex, allLayersPerSlice, recalcGlobalVolumeInstant]); // eslint-disable-line
 
-  // --------- Redibujo en render de imagen ---------
+  // ---------- Redibujo en render de imagen ----------
   useLayoutEffect(() => {
     const element = viewerRef.current;
     if (!element) return;
@@ -644,26 +450,8 @@ useEffect(() => {
       element.removeEventListener(cornerstone.EVENTS.IMAGE_RENDERED, onRendered);
     };
   }, []);
-  
-  function pointToSegmentDistance(p, a, b) {
-    const dx = b.x - a.x;
-    const dy = b.y - a.y;
-    if (dx === 0 && dy === 0) return Math.hypot(p.x - a.x, p.y - a.y);
-    const t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / (dx * dx + dy * dy);
-    const tClamped = Math.max(0, Math.min(1, t));
-    const closest = { x: a.x + tClamped * dx, y: a.y + tClamped * dy };
-    return Math.hypot(p.x - closest.x, p.y - closest.y);
-  }
 
-  async function saveEditableJson(index) {
-    const paddedIndex = String(index).padStart(3, '0');
-
-    const lungLayer = layers.find(l => l.name.includes("Pulmón") && l.editable);
-    const fibrosisLayer = layers.find(l => l.name.includes("Fibrosis") && l.editable);
-  
-    // Normaliza estructura para evitar errores de parseo
-
-  // --------- Guardado + recálculo ---------
+  // ---------- Guardado + recálculo ----------
   async function saveEditableJson(index, nextLayersForSlice = null) {
     const paddedIndex = String(index).padStart(3, "0");
     const currentLayers = nextLayersForSlice ?? layers;
@@ -684,71 +472,36 @@ useEffect(() => {
     };
 
     try {
-      const jsonStr = JSON.stringify(jsonData);
-      JSON.parse(jsonStr);
-
-      await axios.post(`/api/segment/save-edit/${folder}/${paddedIndex}`, jsonData);
-      console.log(`Guardado: mask_${paddedIndex}_simplified.json`);
-  
       await axios.post(`/api/segment/save-edit/${folder}/${paddedIndex}`, jsonData);
 
       const updated = [...allLayersPerSlice];
       updated[index] = currentLayers;
       setAllLayersPerSlice(updated);
-  
-      const firstImageId = `wadouri:${window.location.origin}${dicomList[0]}`;
-      const image = await cornerstone.loadAndCacheImage(firstImageId);
-      const { pixelSpacing, sliceThickness } = extractSpacingFromImage(image);
-      const volumenGlobal = calcularVolumenEditableGlobal(updated, pixelSpacing, sliceThickness);
-      setEditableVolumen(volumenGlobal);
-  
-      // Recalcular volumen global con spacing global
+
       const px = { row: Number(dicomSpacing.row) || 1, col: Number(dicomSpacing.col) || 1 };
       const dz = Number(dicomSpacing.slice) || 1;
       const volumenGlobal = calcularVolumenEditableGlobal(updated, px, dz);
       setEditableVolumen(volumenGlobal);
 
-      // Guardar/actualizar en BD
       await enviarVolumenABackend(
         nss,
         fechaSQL,
         volumenGlobal,
         "Ajuste manual en StudyView",
-        true
+        true // manual = true ⇒ volumen_manual
       );
     } catch (err) {
       console.error("Error al guardar edición/volumen:", err);
     }
   }
 
-// Dibuja líneas y vértices sobre canvas
-const drawOverlayLines = () => {
-
-  const canvas = overlayRef.current;
-  const element = viewerRef.current;
-  if (!canvas || !element) return;
-  try {
-    cornerstone.getEnabledElement(element);
-  } catch {
-    cornerstone.enable(element);
-  }
-  
-
-  const rect = element.getBoundingClientRect();
-  canvas.width = rect.width;
-  canvas.height = rect.height;
-  const ctx = canvas.getContext("2d");
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  // --------- Dibujo overlay ---------
+  // ---------- Dibujo overlay ----------
   const drawOverlayLines = () => {
     const canvas = overlayRef.current;
     const element = viewerRef.current;
     if (!canvas || !element) return;
-    try {
-      cornerstone.getEnabledElement(element);
-    } catch {
-      cornerstone.enable(element);
-    }
+
+    try { cornerstone.getEnabledElement(element); } catch { cornerstone.enable(element); }
 
     const rect = element.getBoundingClientRect();
     canvas.width = rect.width;
@@ -760,18 +513,9 @@ const drawOverlayLines = () => {
     (layers || []).forEach((layer) => {
       if (!layer?.visible || !layer.points || layer.points.length === 0) return;
 
-    layers.forEach((layer) => {
-      if (!layer.visible || !layer.points || layer.points.length === 0) return;
+      const isMultiContour = Array.isArray(layer.points[0]);
+      const allPolygons = isMultiContour ? layer.points : [layer.points];
 
-    const isMultiContour = Array.isArray(layer.points[0]);
-    const allPolygons = isMultiContour ? layer.points : [layer.points];
-
-      allPolygons.forEach(polygon => {
-        if (!Array.isArray(polygon) || polygon.length < 2) return;
-
-      // 🔐 Filtrar puntos inválidos
-      const filteredPoints = polygon.filter(p => p && typeof p.x === 'number' && typeof p.y === 'number');
-      if (filteredPoints.length < 2) return;
       allPolygons.forEach((polygon) => {
         if (!Array.isArray(polygon) || polygon.length < 2) return;
 
@@ -780,43 +524,26 @@ const drawOverlayLines = () => {
         );
         if (filteredPoints.length < 2) return;
 
-        const screenPoints = filteredPoints.map((p) =>
-          cornerstone.pixelToCanvas(element, p)
-        );
+        const screenPoints = filteredPoints.map((p) => cornerstone.pixelToCanvas(element, p));
         if (screenPoints.some((pt) => !pt || typeof pt.x !== "number")) return;
-
-        const screenPoints = filteredPoints.map(p => cornerstone.pixelToCanvas(element, p));
-        if (screenPoints.some(pt => !pt || typeof pt.x !== 'number')) return;
 
         if (layer.closed && screenPoints.length >= 3) {
           ctx.beginPath();
           ctx.moveTo(screenPoints[0].x, screenPoints[0].y);
-          for (let i = 1; i < screenPoints.length; i++) {
-            ctx.lineTo(screenPoints[i].x, screenPoints[i].y);
-          }
+          for (let i = 1; i < screenPoints.length; i++) ctx.lineTo(screenPoints[i].x, screenPoints[i].y);
           ctx.closePath();
           ctx.fillStyle = "rgba(0,255,0,0.2)";
           ctx.fill();
         }
 
-      ctx.beginPath();
-      ctx.strokeStyle = layer.color;
-      ctx.lineWidth = 2;
-      ctx.moveTo(screenPoints[0].x, screenPoints[0].y);
-      for (let i = 1; i < screenPoints.length; i++) {
-        ctx.lineTo(screenPoints[i].x, screenPoints[i].y);
-      }
-      if (layer.closed) ctx.lineTo(screenPoints[0].x, screenPoints[0].y);
-      ctx.stroke();
+        ctx.beginPath();
+        ctx.strokeStyle = layer.color || "cyan";
+        ctx.lineWidth = 2;
+        ctx.moveTo(screenPoints[0].x, screenPoints[0].y);
+        for (let i = 1; i < screenPoints.length; i++) ctx.lineTo(screenPoints[i].x, screenPoints[i].y);
+        if (layer.closed) ctx.lineTo(screenPoints[0].x, screenPoints[0].y);
+        ctx.stroke();
 
-      if (layer.editable) {
-        screenPoints.forEach(pt => {
-          ctx.beginPath();
-          ctx.arc(pt.x, pt.y, 5, 0, 2 * Math.PI);
-          ctx.fillStyle = "red";
-          ctx.fill();
-        });
-      }
         if (layer.editable) {
           screenPoints.forEach((pt) => {
             ctx.beginPath();
@@ -827,27 +554,9 @@ const drawOverlayLines = () => {
         }
       });
     });
-  });
-};
-
-  function calculatePolygonAreaMm(points, pixelSpacing) {
-    let area = 0;
-    for (let i = 0; i < points.length; i++) {
-      const j = (i + 1) % points.length;
-      area += (points[i].x * points[j].y) - (points[j].x * points[i].y);
-    }
-    const pixelArea = Math.abs(area / 2);
-    if (pixelSpacing && pixelSpacing.row && pixelSpacing.col) {
-      return pixelArea * pixelSpacing.row * pixelSpacing.col;
-    }
-    return null;
   };
 
-// aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-const handleOverlayClick = (e) => {
-  const layer = layers[selectedLayerIndex];
-  if (!layer || !layer.editable) return;
-  // --------- Edición por click ---------
+  // ---------- Edición por click ----------
   const pointToSegmentDistance = (p, a, b) => {
     const dx = b.x - a.x;
     const dy = b.y - a.y;
@@ -866,40 +575,14 @@ const handleOverlayClick = (e) => {
     const canvas = overlayRef.current;
     if (!element || !canvas || wasDragging) return;
 
-  const rect = canvas.getBoundingClientRect();
-  const x = e.clientX - rect.left;
-  const y = e.clientY - rect.top;
-  const imagePoint = cornerstone.canvasToPixel(element, { x, y });
-
-    setLayers(prev => {
-      const updated = [...prev];
-      const newLayer = { ...updated[selectedLayerIndex] };
-      const isMulti = Array.isArray(newLayer.points[0]);
-      const polygons = isMulti ? newLayer.points.map(p => [...p]) : [ [...newLayer.points] ];
-
-      for (let pIdx = 0; pIdx < polygons.length; pIdx++) {
-        const polygon = polygons[pIdx];
-        if (!polygon || polygon.length === 0) continue;
-
-        const screenPoints = polygon.map(p => cornerstone.pixelToCanvas(element, p));
-
-      // Alt-click para eliminar punto
-      if (e.altKey) {
-        const idx = screenPoints.findIndex(pt => Math.hypot(pt.x - x, pt.y - y) < 6);
-        if (idx !== -1) {
-          polygon.splice(idx, 1);
-          newLayer.points = isMulti ? polygons : polygons[0];
-          updated[selectedLayerIndex] = newLayer;
-          saveEditableJson(selectedIndex);
-          return updated;
     const rect = canvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
     const imagePoint = cornerstone.canvasToPixel(element, { x, y });
-    const threshold = 6;
 
     const toCanvas = (p) => cornerstone.pixelToCanvas(element, p);
 
+    // deep copy del slice
     const nextLayers = layers.map((l) => ({
       ...l,
       points: Array.isArray(l.points?.[0])
@@ -920,21 +603,23 @@ const handleOverlayClick = (e) => {
       layer.points = isMulti ? polygons : polygons[0];
     }
 
+    // ALT → borrar punto
     if (e.altKey) {
       for (let pIdx = 0; pIdx < polygons.length; pIdx++) {
         const spts = polygons[pIdx].map(toCanvas);
-        const idx = spts.findIndex((pt) => Math.hypot(pt.x - x, pt.y - y) < threshold);
+        const idx = spts.findIndex((pt) => Math.hypot(pt.x - x, pt.y - y) < THRESH);
         if (idx !== -1) {
           polygons[pIdx].splice(idx, 1);
           layer.points = isMulti ? polygons : polygons[0];
           setLayers(nextLayers);
-          recalcGlobalVolumeInstant(selectedIndex, nextLayers); // actualiza mL al vuelo
-          saveEditableJson(selectedIndex, nextLayers);           // luego persiste
+          recalcGlobalVolumeInstant(selectedIndex, nextLayers);
+          saveEditableJson(selectedIndex, nextLayers);
           return;
         }
       }
     }
 
+    // Insertar sobre borde si está cerrado
     if (layer.closed) {
       for (let pIdx = 0; pIdx < polygons.length; pIdx++) {
         const spts = polygons[pIdx].map(toCanvas);
@@ -942,94 +627,54 @@ const handleOverlayClick = (e) => {
           const a = spts[i];
           const b = spts[(i + 1) % spts.length];
           const dist = pointToSegmentDistance({ x, y }, a, b);
-          if (dist < threshold) {
+          if (dist < THRESH) {
             polygons[pIdx].splice(i + 1, 0, imagePoint);
             layer.points = isMulti ? polygons : polygons[0];
             setLayers(nextLayers);
-            recalcGlobalVolumeInstant(selectedIndex, nextLayers); // actualiza mL al vuelo
-            saveEditableJson(selectedIndex, nextLayers);           // luego persiste
+            recalcGlobalVolumeInstant(selectedIndex, nextLayers);
+            saveEditableJson(selectedIndex, nextLayers);
             return;
           }
         }
       }
     } else {
+      // Cerrar polígono si clic cerca del primer punto
       const firstPoly = polygons[0];
       if (firstPoly.length >= 3) {
         const firstCanvas = toCanvas(firstPoly[0]);
-        if (Math.hypot(firstCanvas.x - x, firstCanvas.y - y) < threshold) {
+        if (Math.hypot(firstCanvas.x - x, firstCanvas.y - y) < THRESH) {
           layer.closed = true;
           layer.points = isMulti ? polygons : polygons[0];
-            setLayers(nextLayers);
-            recalcGlobalVolumeInstant(selectedIndex, nextLayers); // actualiza mL al vuelo
-            saveEditableJson(selectedIndex, nextLayers);           // luego persiste
+          setLayers(nextLayers);
+          recalcGlobalVolumeInstant(selectedIndex, nextLayers);
+          saveEditableJson(selectedIndex, nextLayers);
           return;
         }
       }
 
-      // Click cerca del borde para insertar punto
-      if (newLayer.closed && screenPoints.length >= 2) {
-        const insertThreshold = 6;
-        for (let i = 0; i < screenPoints.length; i++) {
-          const a = screenPoints[i];
-          const b = screenPoints[(i + 1) % screenPoints.length];
-          if (!a || !b) continue;
-
-            const dist = pointToSegmentDistance({ x, y }, a, b);
-            if (dist < insertThreshold) {
-              polygon.splice(i + 1, 0, imagePoint);
-              newLayer.points = isMulti ? polygons : polygons[0];
-              updated[selectedLayerIndex] = newLayer;
-              saveEditableJson(selectedIndex);
-              return updated;
-            }
-          }
-        } else {
-          // Cierre automático si clic cerca del primero
-          if (polygon.length >= 3) {
-            const first = polygon[0];
-            if (Math.hypot(imagePoint.x - first.x, imagePoint.y - first.y) < 6) {
-              newLayer.closed = true;
-              updated[selectedLayerIndex] = newLayer;
-              saveEditableJson(selectedIndex);
-              return updated;
-            }
-          }
-
-          // Añadir punto nuevo
-          const tooClose = screenPoints.some(pt => Math.hypot(pt.x - x, pt.y - y) < 6);
-          if (!tooClose) {
-            polygon.push(imagePoint);
-            newLayer.points = isMulti ? polygons : polygons[0];
-            updated[selectedLayerIndex] = newLayer;
-            saveEditableJson(selectedIndex);
-            return updated;
-          }
-        }
-      }
-
-    return updated;
-  });
-};
+      // Evitar puntos muy cercanos
       const spts = (polygons[0] || []).map(toCanvas);
-      const tooClose = spts.some((pt) => Math.hypot(pt.x - x, pt.y - y) < threshold);
+      const tooClose = spts.some((pt) => Math.hypot(pt.x - x, pt.y - y) < THRESH);
       if (!tooClose) {
         polygons[0].push(imagePoint);
         layer.points = isMulti ? polygons : polygons[0];
-            setLayers(nextLayers);
-            recalcGlobalVolumeInstant(selectedIndex, nextLayers); // actualiza mL al vuelo
-            saveEditableJson(selectedIndex, nextLayers);           // luego persiste
+        setLayers(nextLayers);
+        recalcGlobalVolumeInstant(selectedIndex, nextLayers);
+        saveEditableJson(selectedIndex, nextLayers);
         return;
       }
     }
   };
-  // --------- Drag de vértices + pan ---------
+
+  // ---------- Drag de vértices + pan ----------
   useEffect(() => {
     const canvas = overlayRef.current;
     const element = viewerRef.current;
     const layer = layers[selectedLayerIndex];
     if (!layer || !layer.editable) return;
     if (!canvas || !element) return;
-    const getMouseCoords = (canvas, e) => {
+
+    const getMouseCoords = (e) => {
       const rect = canvas.getBoundingClientRect();
       return { x: e.clientX - rect.left, y: e.clientY - rect.top };
     };
@@ -1041,23 +686,16 @@ const handleOverlayClick = (e) => {
         setLastPanPosition({ x: e.clientX, y: e.clientY });
         return;
       }
-    
       setWasDragging(false);
 
-      if (!layer || !layer.editable) return;
-
-      setWasDragging(false);
-
-      const { x, y } = getMouseCoords(canvas, e);
+      const { x, y } = getMouseCoords(e);
       const isMulti = Array.isArray(layer.points[0]);
       const polygons = isMulti ? layer.points : [layer.points];
 
       for (let pIdx = 0; pIdx < polygons.length; pIdx++) {
-        const screenPoints = polygons[pIdx].map((p) =>
-          cornerstone.pixelToCanvas(element, p)
-        );
+        const screenPoints = polygons[pIdx].map((p) => cornerstone.pixelToCanvas(element, p));
         screenPoints.forEach((pt, i) => {
-          if (Math.hypot(pt.x - x, pt.y - y) < 6) {
+          if (Math.hypot(pt.x - x, pt.y - y) < THRESH) {
             setDraggingIndex({ pIdx, i });
             draggingIndexRef.current = { pIdx, i };
           }
@@ -1078,55 +716,24 @@ const handleOverlayClick = (e) => {
         drawOverlayLines();
         return;
       }
-  
-      if (draggingIndexRef.current !== null) {
-        const { pIdx, i } = draggingIndexRef.current;
-        const { x, y } = getMouseCoords(canvas, e);
-        const imageCoords = cornerstone.canvasToPixel(element, { x, y });
-        setLayers(prev => {
-          const updated = [...prev];
-          const layer = { ...updated[selectedLayerIndex] };
-          const isMulti = Array.isArray(layer.points[0]);
-          const polygons = isMulti ? [...layer.points] : [[...layer.points]];
 
-          if (draggingIndex) {
-            polygons[draggingIndex.pIdx][draggingIndex.i] = imageCoords;
-          }
-
-          layer.points = isMulti ? polygons : polygons[0];
-          updated[selectedLayerIndex] = layer;
-
-          // Guardar automáticamente el JSON después de mover un punto
-          saveEditableJson(selectedIndex);
-
-          return updated;
-        });
-
-        drawOverlayLines();
-      }
-    };
-
-    const stopInteraction = () => {
-      // Si no estamos arrastrando un punto, salir
       const di = draggingIndexRef.current;
-      if (!di) return;
+      if (!di) return; // nada que arrastrar
 
-      const { x, y } = getMouseCoords(canvas, e);
+      const { x, y } = getMouseCoords(e);
       const imageCoords = cornerstone.canvasToPixel(element, { x, y });
 
-      // Usar el estado más fresco del slice actual
+      // snapshot profundo del slice
       const baseSliceLayers = layersRef.current || [];
       if (!baseSliceLayers[selectedLayerIndex]) return;
 
-      // Snapshot profundo del slice actual
-      const updatedSlice = baseSliceLayers.map(l => ({
+      const updatedSlice = baseSliceLayers.map((l) => ({
         ...l,
         points: Array.isArray(l.points?.[0])
-          ? l.points.map(poly => poly.map(p => ({ ...p })))
-          : (Array.isArray(l.points) ? l.points.map(p => ({ ...p })) : [])
+          ? l.points.map((poly) => poly.map((p) => ({ ...p })))
+          : Array.isArray(l.points) ? l.points.map((p) => ({ ...p })) : [],
       }));
 
-      // Actualiza el punto arrastrado
       const lay = updatedSlice[selectedLayerIndex];
       const isMulti = Array.isArray(lay.points[0]);
       const polygons = isMulti ? lay.points : [lay.points];
@@ -1138,26 +745,25 @@ const handleOverlayClick = (e) => {
       lay.points = isMulti ? polygons : polygons[0];
       updatedSlice[selectedLayerIndex] = lay;
 
-      // Refleja en UI
       setLayers(updatedSlice);
       drawOverlayLines();
       setWasDragging(true);
 
-      // 🔁 Recalcula el volumen global al vuelo, sin guardar todavía
       recalcGlobalVolumeInstant(selectedIndex, updatedSlice);
     };
+
     const stopInteraction = async () => {
       setDraggingIndex(null);
       draggingIndexRef.current = null;
       setIsPanning(false);
       setLastPanPosition(null);
-    };
-      // Guardar SOLO si hubo drag real
+
       if (wasDraggingRef.current) {
         await saveEditableJson(selectedIndex, layersRef.current);
         setWasDragging(false);
       }
     };
+
     canvas.addEventListener("mousedown", handleMouseDown);
     canvas.addEventListener("mousemove", handleMouseMove);
     canvas.addEventListener("mouseup", stopInteraction);
@@ -1170,11 +776,9 @@ const handleOverlayClick = (e) => {
       canvas.removeEventListener("mouseup", stopInteraction);
       canvas.removeEventListener("mouseleave", stopInteraction);
     };
-  }, [layers, selectedLayerIndex, draggingIndex, isPanning, lastPanPosition]);
-  
-}, [layers, selectedLayerIndex, isPanning, lastPanPosition, selectedIndex, recalcGlobalVolumeInstant]);
+  }, [layers, selectedLayerIndex, isPanning, lastPanPosition, selectedIndex, recalcGlobalVolumeInstant]); // eslint-disable-line
 
-  // --------- Zoom ---------
+  // ---------- Zoom ----------
   const handleZoomChange = (e) => {
     const newScale = parseFloat(e.target.value);
     setScale(newScale);
@@ -1187,9 +791,10 @@ const handleOverlayClick = (e) => {
     }
   };
 
-  // --------- UI ---------
+  // ---------- UI ----------
   if (loading) return <p style={{ padding: "2rem" }}>Cargando estudio…</p>;
   if (error) return <p style={{ padding: "2rem", color: "red" }}>{error}</p>;
+
   const huMin = Math.round(windowCenter - windowWidth / 2);
   const huMax = Math.round(windowCenter + windowWidth / 2);
 
@@ -1198,8 +803,6 @@ const handleOverlayClick = (e) => {
       <div style={{ padding: "2rem" }}>
         <h2>Estudio - {fechaOriginal}</h2>
         <button onClick={() => navigate(-1)}>← Volver</button>
-  
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, 150px)", gap: "1rem", marginTop: "2rem" }}>
 
         <div
           style={{
@@ -1215,10 +818,7 @@ const handleOverlayClick = (e) => {
               className="thumb"
               onClick={() => setSelectedIndex(i)}
               ref={async (el) => {
-                if (
-                  el &&
-                  !cornerstone.getEnabledElements().some((e) => e.element === el)
-                ) {
+                if (el && !cornerstone.getEnabledElements().some((e) => e.element === el)) {
                   try {
                     cornerstone.enable(el);
                     const image = await cornerstone.loadAndCacheImage(
@@ -1232,6 +832,7 @@ const handleOverlayClick = (e) => {
                 background: "black",
                 borderRadius: "8px",
                 height: "150px",
+                cursor: "pointer",
               }}
             />
           ))}
@@ -1240,13 +841,13 @@ const handleOverlayClick = (e) => {
 
       {selectedIndex !== null && (
         <div className="fullscreen-overlay">
-  <div className="sidebar-panel">
-    <div className="sidebar-header">
-      <strong>Imagen {selectedIndex + 1} / {dicomList.length}</strong>
-      <button className="btn" onClick={() => setSelectedIndex(null)}>Cerrar</button>
-    </div>
+          <div className="sidebar-panel">
+            <div className="sidebar-header">
+              <strong>Imagen {selectedIndex + 1} / {dicomList.length}</strong>
+              <button className="btn" onClick={() => setSelectedIndex(null)}>Cerrar</button>
+            </div>
 
-            {/* ------- NUEVO: Controles HU (WW/WL) + presets ------- */}
+            {/* WW/WL */}
             <div style={{ color: "#fff", marginBottom: "1rem" }}>
               <div style={{ fontWeight: "bold", marginBottom: 6 }}>Visualización HU (WW/WL)</div>
 
@@ -1258,7 +859,7 @@ const handleOverlayClick = (e) => {
               </div>
 
               <div style={{ marginBottom: 6 }}>
-                <label>WL (Level): {Math.round(windowCenter)}&nbsp;HU</label>
+                <label>WL (Level): {Math.round(windowCenter)} HU</label>
                 <input
                   type="range"
                   min={-1000}
@@ -1269,7 +870,7 @@ const handleOverlayClick = (e) => {
                 />
               </div>
               <div style={{ marginBottom: 6 }}>
-                <label>WW (Width): {Math.round(windowWidth)}&nbsp;HU</label>
+                <label>WW (Width): {Math.round(windowWidth)} HU</label>
                 <input
                   type="range"
                   min={1}
@@ -1284,198 +885,32 @@ const handleOverlayClick = (e) => {
               </div>
             </div>
 
-            {volumenes && (
+            {/* volumen automático */}
+            {autoVol && (
               <div style={{ color: "#fff", marginBottom: "1rem" }}>
-                <div><strong>Volumen pulmón:</strong> {volumenes.lung_volume_ml} ml</div>
-                <div><strong>Volumen fibrosis:</strong> {volumenes.fibrosis_volume_ml} ml</div>
-                <div><strong>Total:</strong> {volumenes.total_volume_ml} ml</div>
+                <div><strong>Volumen pulmón (auto):</strong> {autoVol.lung ?? "—"} ml</div>
+                <div><strong>Volumen fibrosis (auto):</strong> {autoVol.fibrosis ?? "—"} ml</div>
+                <div><strong>Total (auto):</strong> {autoVol.total ?? "—"} ml</div>
               </div>
             )}
 
+            {/* zoom */}
             <div>
               <label style={{ color: "#fff" }}>Zoom:</label>
-              <input
-                type="range"
-                min="0.1"
-                max="10"
-                step="0.01"
-                value={scale}
-                onChange={handleZoomChange}
-              />
+              <input type="range" min="0.1" max="10" step="0.01" value={scale} onChange={handleZoomChange} />
             </div>
 
+            {/* navegación */}
             <div style={{ marginTop: "1rem" }}>
-              <button
-                className="btn"
-                onClick={() => setSelectedIndex(prev => Math.max(0, prev - 1))}
-                disabled={selectedIndex === 0}
-              >
+              <button className="btn" onClick={() => setSelectedIndex((prev) => Math.max(0, prev - 1))} disabled={selectedIndex === 0}>
                 Anterior
               </button>
-              <button
-                className="btn"
-                onClick={() => setSelectedIndex(prev => Math.min(dicomList.length - 1, prev + 1))}
-                disabled={selectedIndex === dicomList.length - 1}
-              >
+              <button className="btn" onClick={() => setSelectedIndex((prev) => Math.min(dicomList.length - 1, prev + 1))} disabled={selectedIndex === dicomList.length - 1}>
                 Siguiente
               </button>
             </div>
 
-            {layers.length > 0 && (
-              <>
-                <p style={{ color: "#fff", marginTop: "1rem" }}>Capas:</p>
-                {layers.map((layer, i) => (
-                  <label key={i} style={{ color: "#fff", display: "block" }}>
-                    <input
-                      type="checkbox"
-                      checked={layer.visible}
-                      onChange={() => {
-                        const updated = [...layers];
-                        updated[i].visible = !updated[i].visible;
-                        setLayers(updated);
-                      }}
-                    />{" "}
-                    {layer.name}
-                  </label>
-                ))}
-
-        <div style={{ marginTop: "1rem", color: "#fff" }}>
-          <label>Editar capa:</label>
-          <select
-            value={selectedLayerIndex}
-            onChange={(e) => setSelectedLayerIndex(parseInt(e.target.value))}
-          >
-            {layers.map((layer, i) =>
-              layer.editable ? (
-                <option key={i} value={i}>
-                  {layer.name}
-                </option>
-              ) : null
-            )}
-          </select>
-          <div className="sidebar-panel">
-            <div className="sidebar-header">
-              <strong>
-                Imagen {selectedIndex + 1} / {dicomList.length}
-              </strong>
-              <button className="btn" onClick={() => setSelectedIndex(null)}>
-                Cerrar
-              </button>
-            </div>
-
-            <div style={{ color: "#fff", marginBottom: "1rem" }}>
-              <div style={{ fontWeight: "bold", marginBottom: 6 }}>
-                Visualización HU (WW/WL)
-              </div>
-
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr 1fr",
-                  gap: 8,
-                  marginBottom: 8,
-                }}
-              >
-                <button className="btn" onClick={() => setPreset("lung")}>
-                  Pulmón
-                </button>
-                <button className="btn" onClick={() => setPreset("ggo")}>
-                  Fibrosis/Vidrio
-                </button>
-                <button className="btn" onClick={() => setPreset("soft")}>
-                  Partes blandas
-                </button>
-                <button className="btn" onClick={() => setPreset("bone")}>
-                  Hueso
-                </button>
-              </div>
-
-              <div style={{ marginBottom: 6 }}>
-                <label>WL (Level): {Math.round(windowCenter)} HU</label>
-                <input
-                  type="range"
-                  min={-1000}
-                  max={1000}
-                  step={1}
-                  value={windowCenter}
-                  onChange={(e) =>
-                    setWindowCenter(clamp(+e.target.value, -1000, 1000))
-                  }
-                />
-              </div>
-              <div style={{ marginBottom: 6 }}>
-                <label>WW (Width): {Math.round(windowWidth)} HU</label>
-                <input
-                  type="range"
-                  min={1}
-                  max={3000}
-                  step={1}
-                  value={windowWidth}
-                  onChange={(e) =>
-                    setWindowWidth(clamp(+e.target.value, 1, 3000))
-                  }
-                />
-              </div>
-              <div style={{ fontSize: 12, opacity: 0.8 }}>
-                Rango efectivo: [{huMin}, {huMax}] HU
-              </div>
-            </div>
-
-            {volumenes && (
-              <div style={{ color: "#fff", marginBottom: "1rem" }}>
-                <div>
-                  <strong>Volumen pulmón (auto):</strong>{" "}
-                  {volumenes.lung_volume_ml} ml
-                </div>
-                <div>
-                  <strong>Volumen fibrosis (auto):</strong>{" "}
-                  {volumenes.fibrosis_volume_ml} ml
-                </div>
-                <div>
-                  <strong>Total (auto):</strong> {volumenes.total_volume_ml} ml
-                </div>
-              </div>
-            )}
-            {/* {autoVol && (
-                <div style={{ color: "#fff", marginBottom: "1rem" }}>
-                  <div><strong>Volumen pulmón (auto):</strong> {autoVol.lung ?? "—"} ml</div>
-                  <div><strong>Volumen fibrosis (auto):</strong> {autoVol.fibrosis ?? "—"} ml</div>
-                  <div><strong>Total (auto):</strong> {autoVol.total ?? "—"} ml</div>
-                </div>
-              )} */}
-            <div>
-              <label style={{ color: "#fff" }}>Zoom:</label>
-              <input
-                type="range"
-                min="0.1"
-                max="10"
-                step="0.01"
-                value={scale}
-                onChange={handleZoomChange}
-              />
-            </div>
-
-            <div style={{ marginTop: "1rem" }}>
-              <button
-                className="btn"
-                onClick={() => setSelectedIndex((prev) => Math.max(0, prev - 1))}
-                disabled={selectedIndex === 0}
-              >
-                Anterior
-              </button>
-              <button
-                className="btn"
-                onClick={() =>
-                  setSelectedIndex((prev) =>
-                    Math.min(dicomList.length - 1, prev + 1)
-                  )
-                }
-                disabled={selectedIndex === dicomList.length - 1}
-              >
-                Siguiente
-              </button>
-            </div>
-
+            {/* capas */}
             {layers.length > 0 && (
               <>
                 <p style={{ color: "#fff", marginTop: "1rem" }}>Capas:</p>
@@ -1497,62 +932,26 @@ const handleOverlayClick = (e) => {
 
                 <div style={{ marginTop: "1rem", color: "#fff" }}>
                   <label>Editar capa:</label>
-                  <select
-                    value={selectedLayerIndex}
-                    onChange={(e) =>
-                      setSelectedLayerIndex(parseInt(e.target.value, 10))
-                    }
-                  >
-                    {layers.map((layer, i) =>
-                      layer.editable ? (
-                        <option key={i} value={i}>
-                          {layer.name}
-                        </option>
-                      ) : null
-                    )}
+                  <select value={selectedLayerIndex} onChange={(e) => setSelectedLayerIndex(parseInt(e.target.value, 10))}>
+                    {layers.map((layer, i) => (layer.editable ? <option key={i} value={i}>{layer.name}</option> : null))}
                   </select>
                 </div>
               </>
             )}
 
+            {/* volumen editable */}
             {editableVolumen && (
               <div style={{ color: "#fff", marginTop: "1rem" }}>
-                <div>
-                  <strong>Pulmón (editable):</strong>{" "}
-                  {editableVolumen.editableLungVolume} ml
-                </div>
-                <div>
-                  <strong>Fibrosis (editable):</strong>{" "}
-                  {editableVolumen.editableFibrosisVolume} ml
-                </div>
-                <div>
-                  <strong>Total (editable):</strong>{" "}
-                  {editableVolumen.editableTotalVolume} ml
-                </div>
+                <div><strong>Pulmón (editable):</strong> {editableVolumen.editableLungVolume} ml</div>
+                <div><strong>Fibrosis (editable):</strong> {editableVolumen.editableFibrosisVolume} ml</div>
+                <div><strong>Total (editable):</strong> {editableVolumen.editableTotalVolume} ml</div>
               </div>
             )}
           </div>
 
           <div className="main-panel">
             <div ref={viewerRef} className="fullscreen-viewer" />
-            <canvas
-              ref={overlayRef}
-              className="overlay-canvas"
-              onClick={handleOverlayClick}
-            />
-          </div>
-        </div>
-      </>
-    )}
-  </div>
-
-          <div className="main-panel">
-            <div ref={viewerRef} className="fullscreen-viewer" />
-            <canvas
-              ref={overlayRef}
-              className="overlay-canvas"
-              onClick={handleOverlayClick}
-            />
+            <canvas ref={overlayRef} className="overlay-canvas" onClick={handleOverlayClick} />
           </div>
         </div>
       )}
@@ -1565,92 +964,6 @@ const handleOverlayClick = (e) => {
   display: flex; flex-direction: row;
   gap: 0; background: #000; z-index: 9999;
 }
-<<<<<<< Updated upstream
-
-
-            .sidebar-panel {
-              width: 280px;
-              background: #111;
-              color: white;
-              padding: 1rem;
-              display: flex;
-              flex-direction: column;
-              height: 100vh;
-              overflow-y: auto;
-              box-shadow: 2px 0 6px rgba(0, 0, 0, 0.4);
-            }
-
-            .main-panel {
-              flex: 1;
-              position: relative;
-              height: 100vh;
-            }
-
-            .sidebar-header {
-              display: flex;
-              justify-content: space-between;
-              align-items: center;
-              margin-bottom: 1rem;
-            }
-
-  
-        .fullscreen-header {
-          width: 100%;
-          max-width: 960px;
-          display: flex;
-          justify-content: space-between;
-          padding: 1rem;
-          color: white;
-        }
-  
-        .fullscreen-container {
-          position: relative;
-          width: 90%;
-          max-width: 960px;
-          height: 80vh;
-        }
-  
-        .fullscreen-viewer {
-          width: 100%;
-          height: 100%;
-          background: black;
-          border-radius: 12px;
-        }
-  
-        .overlay-canvas {
-          position: absolute;
-          top: 0; left: 0;
-          width: 100%; height: 100%;
-          pointer-events: auto;
-        }
-  
-        .fullscreen-controls {
-          margin-top: 1.5rem;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          gap: 1rem;
-        }
-  
-        .btn {
-          padding: 0.5rem 1.2rem;
-          background: #007bff;
-          color: white;
-          border: none;
-          border-radius: 6px;
-          cursor: pointer;
-          font-size: 0.9rem;
-          margin: 0 0.5rem;
-        }
-  
-        input[type="range"] {
-          width: 300px;
-        }
-      `}</style>
-    </>
-  );
-} // Fin del componente StudyView
-=======
 .sidebar-panel {
   width: 300px; background: #111; color: #fff;
   padding: 1rem; display: flex; flex-direction: column;
