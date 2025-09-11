@@ -1,3 +1,20 @@
+<<<<<<< Updated upstream
+=======
+# # segmentation.py  (versión unificada)
+# Es una fase I/O-bound (lectura de disco) con algo de trabajo vectorizado (NumPy/OpenCV), que suele liberar el GIL. Los 
+# hilos solapan I/O y reducen el tiempo de pared sin complicar el diseño.
+
+# executor.map preserva el orden de files, así que el stack resultante mantiene la correspondencia con la lista de entrada.
+# NO está paralelizado:
+
+# Inferencia de la red (se hace en lote, delegada a Keras/TF).
+
+# Construcción de contornos, DBSCAN y escritura de JSON/TIFF (secuenciales).
+
+import os
+import glob
+import json
+>>>>>>> Stashed changes
 import numpy as np
 import glob
 from tifffile import imwrite
@@ -27,21 +44,44 @@ def dicom_segmentation(path_original, size, n_clases):
     ds_valids = []  # ← lista paralela para guardar los datasets que sí se usaron
     img_size = None
 
+<<<<<<< Updated upstream
     directory_path = path_original
     valid_paths = []  # ← guardamos solo los paths válidos (útil si quieres devolverlos al frontend)
 
         #  ESTA PARTE estaba fuera de la función. Debe estar indentada dentro.
     files = glob.glob(os.path.join(directory_path, '*'))
     print(f"[INFO] Archivos encontrados en carpeta: {len(files)}")
+=======
+    # --- 1) Recolección robusta de DICOMs ---
 
-    for img_path in files:
+    import concurrent.futures
+
+    files = glob.glob(os.path.join(path_original, "*"))
+    if debug:
+        print(f"[INFO] Archivos encontrados en carpeta: {len(files)}")
+
+    SIZE_X, SIZE_Y = size
+>>>>>>> Stashed changes
+
+    def process_dicom(img_path):
         if not os.path.isfile(img_path):
+<<<<<<< Updated upstream
             print(f"[SKIP] {os.path.basename(img_path)} no es un archivo regular (posible carpeta u otro tipo)")
             continue
+=======
+            if debug:
+                print(f"[SKIP] {os.path.basename(img_path)} no es un archivo regular")
+            return None
+>>>>>>> Stashed changes
 
         # Advertencia, pero no filtramos
         if not is_dicom(img_path):
+<<<<<<< Updated upstream
             print(f"[WARNING] {os.path.basename(img_path)} no parece tener encabezado DICOM estándar (pero intentaremos leerlo igual)")
+=======
+            if debug:
+                print(f"[WARN] {os.path.basename(img_path)} no parece DICOM estándar (se intentará leer igual)")
+>>>>>>> Stashed changes
 
         try:
             ds = pd.dcmread(img_path, force=True)
@@ -49,18 +89,30 @@ def dicom_segmentation(path_original, size, n_clases):
 
             # Validación de contenido
             if not hasattr(ds, "PixelData") or ds.get("PixelData") is None or ds.get("Rows") is None:
+<<<<<<< Updated upstream
                 print(f"[SKIP] {os.path.basename(img_path)} no contiene imagen válida (sin PixelData o Rows)")
                 continue
 
+=======
+                if debug:
+                    print(f"[SKIP] {os.path.basename(img_path)} sin PixelData/Rows")
+                return None
+>>>>>>> Stashed changes
             img = ds.pixel_array
 
         except Exception as e:
+<<<<<<< Updated upstream
             print(f"[ERROR] Fallo al leer {os.path.basename(img_path)}: {e}")
             continue
 
         # Procesamiento
         if img_size is None:
             img_size = img.shape
+=======
+            if debug:
+                print(f"[ERROR] Fallo al leer {os.path.basename(img_path)}: {e}")
+            return None
+>>>>>>> Stashed changes
 
         rescale_intercept = int(getattr(ds, "RescaleIntercept", 0))
         img = img + rescale_intercept
@@ -69,9 +121,25 @@ def dicom_segmentation(path_original, size, n_clases):
         img = img.astype(np.uint16)
         img_resized = cv2.resize(img, [SIZE_X, SIZE_Y])
 
+        return (img_resized, ds, img_path, img.shape)  # img.shape = (rows, cols)
+
+    arr_original = []
+    ds_valids = []
+    valid_paths = []
+    img_size = None
+
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        results = list(executor.map(process_dicom, files))
+
+    for result in results:
+        if result is None:
+            continue
+        img_resized, ds, img_path, shape = result
         arr_original.append(img_resized)
         ds_valids.append(ds)
         valid_paths.append(img_path)
+        if img_size is None:
+            img_size = shape
 
     if len(arr_original) == 0:
         raise ValueError(f"No se encontraron imágenes DICOM en: {path_original}")
