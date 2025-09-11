@@ -34,7 +34,7 @@ const path     = require('path');
 const unzipper = require('unzipper');
 const db       = require('../connectionDb');
 const { nameDirectoryDicom } = require('../configConst');
-const { exec } = require('child_process'); // Para ejecutar scripts Python 
+
 const router = express.Router();
 const { guardarMascarasEnBD } = require('./segmentRoutes'); // Importa la función para guardar máscaras
 /**
@@ -93,20 +93,21 @@ router.post('/upload-zip', async (req, res) => {
         (err) => err ? reject(err) : resolve()
       );
     });
-// Leer y almacenar DICOMs en la BD
-const dicomFiles = findDicomFiles(studyDir);
-for (let i = 0; i < dicomFiles.length; i++) {
-  const relativePath = dicomFiles[i];
-  const fullPath = path.join(studyDir, relativePath);
-  const buffer = fs.readFileSync(fullPath);
-  await new Promise((resolve, reject) => {
-    db.query(
-      'INSERT INTO imagen (nss_exp, fecha_estudio, num_tomo, imagen) VALUES (?, ?, ?, ?)',
-      [nss, fecha, i + 1, buffer],
-      (err) => err ? reject(err) : resolve()
-    );
-  });
-}
+
+    // Leer y almacenar DICOMs en la BD
+    const dicomFiles = findDicomFiles(studyDir);
+    for (let i = 0; i < dicomFiles.length; i++) {
+      const relativePath = dicomFiles[i];
+      const fullPath = path.join(studyDir, relativePath);
+      const buffer = fs.readFileSync(fullPath);
+      await new Promise((resolve, reject) => {
+        db.query(
+          'INSERT INTO imagen (nss_exp, fecha_estudio, num_tomo, imagen) VALUES (?, ?, ?, ?)',
+          [nss, fecha, i + 1, buffer],
+          (err) => err ? reject(err) : resolve()
+        );
+      });
+    }
 
 //   EJECUTAR SEGMENTACIÓN AUTOMÁTICAMENTE (DENTRO DEL TRY)
 const segmentationScript = path.join(__dirname, '../segmentation/main.py');
@@ -139,7 +140,7 @@ exec(command, async (error, stdout, stderr) => {
     console.error('Error en subida ZIP:', err);
     res.status(500).send('Error al procesar ZIP');
   }
-}); // ← CIERRE del router.post CORRECTO
+});
 
 /**
  * GET /dicom-list/:folder

@@ -66,6 +66,7 @@ if (fs.existsSync(routesDir)) {
         console.log('  Ruta /api/segment montada');
       } else {
         app.use('/api', route);
+        console.log(`  Ruta /api/${file.replace('.js','')} registrada como Router.`);
       }
     }
   });

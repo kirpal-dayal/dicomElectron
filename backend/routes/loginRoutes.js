@@ -1,6 +1,6 @@
 /**
  * routes/loginRoutes.js
-  
+ *
  * Este módulo define el endpoint de **autenticación** para los usuarios del sistema
  * DICOMElectron, permitiendo el acceso tanto a administradores como a doctores.
 
