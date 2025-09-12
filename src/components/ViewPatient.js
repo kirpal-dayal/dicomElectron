@@ -417,6 +417,10 @@ export default function ViewPatient() {
                 />
               </div>
               <div className="actions">
+                                <button
+                                                  className="btn"
+                  onClick={() => descargarReportePaciente(record.nss)}
+                >Descargar reporte (.xlsx) 📋</button>
                 <button className="btn" onClick={() => navigate(-1)}>
                   Volver
                 </button>

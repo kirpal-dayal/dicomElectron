@@ -6,12 +6,6 @@ console.log('🗂 estudios.js cargado');
 module.exports = (app) => {
     console.log('  → Registrando rutas de', ENDPOINT);
 
-<<<<<<< HEAD
-    //Obtener todos los estudios
-    app.get(ENDPOINT, (res) => {
-        const query = 'SELECT * FROM estudio';
-        db.query(query, (err, res) => {
-=======
     //Obtener todos los estudios p/ el reporte gral con conteo de imagenes
     app.get(ENDPOINT, (req, res) => { // Dejar req por convencion de express
         const query = `SELECT 
@@ -33,14 +27,10 @@ module.exports = (app) => {
             e.volumen_manual;
         `;
         db.query(query, (err, results) => {
->>>>>>> origin/reportes
             if (err) {
                 console.log(err);
                 return res.status(500).send(err);
             }
-<<<<<<< HEAD
-            res.json(res);
-=======
             console.log(results);
             res.json(results);
         });
@@ -82,7 +72,6 @@ module.exports = (app) => {
                 return res.status(404).send('Estudio no encontrado');
             }
             res.json(results); // Devolver el estudio encontrado
->>>>>>> origin/reportes
         });
     });
 

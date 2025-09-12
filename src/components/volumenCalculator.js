@@ -10,7 +10,7 @@ const DEFAULT_SLICE_SPACING = 1;                  // mm
  *  - (0028,0030) PixelSpacing  -> [row, col] mm/pixel
  *  - (0018,0088) SpacingBetweenSlices (si existe)
  *  - ΔZ con ImagePositionPatient entre cortes adyacentes (si se pasa prev/next)
- *  - (0018,0050) SliceThickness como último recurso
+ *  - (0018,0050) SliceThickness como último recursos
  *
  * @param {Object} image   Cornerstone image object
  * @param {Object} [opts]  { prevImage, nextImage } para estimar ΔZ robusto

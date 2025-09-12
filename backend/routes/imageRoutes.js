@@ -34,11 +34,8 @@ const path     = require('path');
 const unzipper = require('unzipper');
 const db       = require('../connectionDb');
 const { nameDirectoryDicom } = require('../configConst');
-<<<<<<< HEAD
 
-=======
 const { exec } = require('child_process'); // Para ejecutar scripts Python 
->>>>>>> origin/reportes
 const router = express.Router();
 const { guardarMascarasEnBD } = require('./segmentRoutes'); // Importa la función para guardar máscaras
 /**
@@ -129,7 +126,7 @@ exec(command, async (error, stdout, stderr) => {
     try {
       await guardarMascarasEnBD(`${nss}_${safeFecha}`, nss, fecha);
     } catch (err) {
-      console.error('❌ Error al guardar máscaras en BD:', err);
+      console.error(' Error al guardar máscaras en BD:', err);
     }
   }
 });
