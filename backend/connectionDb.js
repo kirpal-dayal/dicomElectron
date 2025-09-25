@@ -9,7 +9,7 @@ const db = mysql.createConnection({
   host: 'localhost',
   user: 'root',
   password: DB_PASSW,
-  database: 'fibrosis_v06'
+  database: 'fibrosis_v07'
 });  // .promise es clave para que funcione con async/await al momento de estar con los json
 
 // Conectar a la base de datos
