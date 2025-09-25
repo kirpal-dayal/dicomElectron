@@ -32,35 +32,37 @@ const express = require('express');
 const db = require('../connectionDb');
 const router = express.Router();
 
+// routes/expedienteRoutes.js
+// routes/expedienteRoutes.js
 router.post('/:nss/studies', (req, res) => {
   const { nss } = req.params;
   const {
-    fecha,
+    fecha,                 // "YYYY-MM-DD HH:mm:ss"
     descripcion = null,
+    diagnostico = null,
     volumen_automatico = null,
     volumen_manual = null
   } = req.body;
 
-  if (!fecha) {
-    return res.status(400).send('Falta la fecha del estudio');
-  }
+  if (!fecha) return res.status(400).send('Falta la fecha del estudio');
 
   const sql = `
-    INSERT INTO estudio
-      (fecha, nss_expediente, descripcion, volumen_automatico, volumen_manual)
+    INSERT INTO estudio (fecha, nss_expediente, descripcion, diagnostico, volumen_automatico, volumen_manual)
     VALUES (?, ?, ?, ?, ?)
+    ON DUPLICATE KEY UPDATE
+      descripcion = VALUES(descripcion),
+      diagnostico = VALUES(diagnostico),
+      volumen_automatico = COALESCE(VALUES(volumen_automatico), volumen_automatico),
+      volumen_manual     = COALESCE(VALUES(volumen_manual), volumen_manual)
   `;
-  db.query(
-    sql,
-    [fecha, nss, descripcion, volumen_automatico, volumen_manual],
-    err => {
-      if (err) {
-        console.error('Error al crear estudio:', err);
-        return res.status(500).send('Error al crear estudio');
-      }
-      res.status(201).send('Estudio creado exitosamente');
+
+  db.query(sql, [fecha, nss, descripcion, diagnostico, volumen_automatico, volumen_manual], (err) => {
+    if (err) {
+      console.error('Error al crear/actualizar estudio:', err);
+      return res.status(500).send('Error al crear/actualizar estudio');
     }
-  );
+    res.status(201).send('Estudio creado/actualizado');
+  });
 });
 
 // GET /expedientes/:nss
@@ -85,7 +87,7 @@ router.get('/expedientes/:nss', (req, res) => {
     const expediente = expRows[0];
 
     const estSql = `
-      SELECT fecha, descripcion, volumen_automatico, volumen_manual
+      SELECT fecha, descripcion, diagnostico, volumen_automatico, volumen_manual
       FROM estudio
       WHERE nss_expediente = ?
       ORDER BY fecha DESC

@@ -12,6 +12,7 @@ module.exports = (app) => {
             e.fecha,
             e.nss_expediente,
             e.descripcion,
+            e.diagnostico,
             e.volumen_automatico,
             e.volumen_manual,
             COUNT(i.nss_exp) AS num_imgs
@@ -23,6 +24,7 @@ module.exports = (app) => {
             e.fecha,
             e.nss_expediente,
             e.descripcion,
+            e.diagnostico,
             e.volumen_automatico,
             e.volumen_manual;
         `;
@@ -47,6 +49,7 @@ module.exports = (app) => {
                 e.fecha, 
                 e.nss_expediente, 
                 e.descripcion, 
+                e.diagnostico,
                 e.volumen_automatico, 
                 e.volumen_manual, 
                 COUNT(i.nss_exp) AS num_imgs
@@ -60,6 +63,7 @@ module.exports = (app) => {
                 e.fecha, 
                 e.nss_expediente, 
                 e.descripcion, 
+                e.diagnostico,
                 e.volumen_automatico, 
                 e.volumen_manual;
         `;
@@ -87,6 +91,23 @@ module.exports = (app) => {
             if (err) {
                 console.error(err);
                 return res.status(500).send('Error al actualizar la descripción');
+            }
+            res.json({ ok: true });
+        });
+    });
+
+    // Modificar el diagnostico de un estudio
+    app.patch(ENDPOINT + '/diagnostico', (req, res) => {
+        console.log("llegue al patch diagnostico");
+        const { nss_expediente, fecha, diagnostico } = req.body;
+        if (!nss_expediente || !fecha) {
+            return res.status(400).send('Faltan parámetros');
+        }
+        const query = 'UPDATE estudio SET diagnostico = ? WHERE nss_expediente = ? AND fecha = ?';
+        db.query(query, [diagnostico, nss_expediente, fecha], (err, result) => {
+            if (err) {
+                console.error(err);
+                return res.status(500).send('Error al actualizar la diagnostico');
             }
             res.json({ ok: true });
         });
