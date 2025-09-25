@@ -16,10 +16,14 @@ import cornerstoneWADOImageLoader from "cornerstone-wado-image-loader";
 import dicomParser from "dicom-parser";
 
 import DescripcionEstudio from "./modals/DescripcionEstudio";
+import EditFieldStudio from "./modals/EditFieldStudio";
 // import VTKVolumeViewer from "./VTKVolumeViewer";
 // import { loadMaskFiles } from "../utils/loadMaskfiles";
 
 import { descargarReportePaciente } from "../utils/reportes/descargarReportes";
+
+const descripcionEndpoint = "http://localhost:5000/estudios/descripcion";
+const diagnosticoEndpoint = "http://localhost:5000/estudios/diagnostico";
 
 // ---- Cornerstone config (WADO-URI desde backend) ----
 cornerstoneWADOImageLoader.external.cornerstone = cornerstone;
@@ -154,6 +158,10 @@ export default function ViewPatient() {
   //Descripcion del estudio
   const [showDescripcionModal, setShowDescripcionModal] = useState(false);
   const [descripcionActual, setDescripcionActual] = useState("");
+
+  //Diagnostico del estudio
+  const [showDiagnosticoModal, setShowDiagnosticoModal] = useState(false);
+  const [diagnosticoActual, setDiagnosticoActual] = useState("");
 
   // Cargar expediente + preparar miniaturas por estudio (y leer fecha DICOM)
   const fetchRecord = async () => {
@@ -496,6 +504,23 @@ export default function ViewPatient() {
                       Descripción ✏️
                     </button>
 
+                    {/* Ver/editar diagnostico */}
+                    <button
+                      className="btn"
+                      title={s.diagnostico || "-"}
+                      onClick={() => {
+                        setDiagnosticoActual(s.diagnostico || "");
+                        setShowDiagnosticoModal({
+                          open: true,
+                          nss_expediente: record.nss,
+                          fecha: toSQLDateString(s.fecha), // siempre SQL
+                        });
+                      }}
+                      style={{ marginTop: 8 }}
+                    >
+                      Diagnóstico 🩺
+                    </button>
+
                     {/* Ir al visor 2D del estudio */}
                     <button
                       className="btn"
@@ -574,6 +599,24 @@ export default function ViewPatient() {
                 nss_expediente={showDescripcionModal.nss_expediente}
                 fecha={showDescripcionModal.fecha}
                 onClose={() => setShowDescripcionModal(false)}
+                onSave={async () => {
+                  await fetchRecord(); // refresca la lista de estudios
+                }}
+              />
+            )}
+          </div>
+
+          <div>
+            {showDiagnosticoModal && (
+              <EditFieldStudio
+                value={showDiagnosticoModal.diagnostico}
+                nss_expediente={showDiagnosticoModal.nss_expediente}
+                fecha={showDiagnosticoModal.fecha}
+                endpoint={diagnosticoEndpoint}
+                fieldName="diagnostico"
+                placeholder="Ingrese el diagnóstico del estudio"
+                title="Diagnóstico del Estudio"
+                onClose={() => setShowDiagnosticoModal(false)}
                 onSave={async () => {
                   await fetchRecord(); // refresca la lista de estudios
                 }}
