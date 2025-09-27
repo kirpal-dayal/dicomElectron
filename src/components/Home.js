@@ -1,7 +1,7 @@
 // src/components/Home.js
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import axios from 'axios';
+import api from '../api'; // ruta relativa desde /src/components
 
 import { loadMaskFiles } from '../utils/loadMaskfiles';
 import VTKVolumeViewer from './VTKVolumeViewer';
@@ -53,11 +53,12 @@ export default function Home() {
     if (!validate()) return;
     setLoading(true);
     try {
-      const { data } = await axios.post( // envia datos al endpoint de login, que va a verificar si el usuario y contraseña son correctos
-        `${API_URL}/api/login`,
-        form,
-        { headers: { 'Content-Type': 'application/json' } }
-      ); console.log('🔑 login data:', data);
+      // const { data } = await axios.post( // envia datos al endpoint de login, que va a verificar si el usuario y contraseña son correctos
+      //   `${API_URL}/api/login`,
+      //   form,
+      //   { headers: { 'Content-Type': 'application/json' } }
+      // ); console.log(' login data:', data);
+      const { data } = await api.post('/api/login', form);
 
       // Guardar id, username y rol
       localStorage.setItem(
@@ -75,7 +76,13 @@ export default function Home() {
       else if (data.role === 'user') navigate('/user');
       else setServerError('Rol desconocido');
     } catch (err) {
-      setServerError(err.response?.data || 'Error desconocido al iniciar sesión');
+      // setServerError(err.response?.data || 'Error desconocido al iniciar sesión');
+        const msg =
+       err?.response?.data?.error ||
+       err?.response?.data?.message ||
+       err?.message ||
+       'Error desconocido al iniciar sesión';
+     setServerError(msg);
     } finally {
       setLoading(false);
     }

@@ -486,7 +486,7 @@ useEffect(() => {
       await enviarVolumenABackend(
         nss,
         fechaSQL,
-        volumenGlobal,
+        (volumenGlobal?.editableTotalVolume ?? null),
         "Ajuste manual en StudyView",
         true // manual = true ⇒ volumen_manual
       );
@@ -885,15 +885,6 @@ useEffect(() => {
               </div>
             </div>
 
-            {/* volumen automático */}
-            {autoVol && (
-              <div style={{ color: "#fff", marginBottom: "1rem" }}>
-                <div><strong>Volumen pulmón (auto):</strong> {autoVol.lung ?? "—"} ml</div>
-                <div><strong>Volumen fibrosis (auto):</strong> {autoVol.fibrosis ?? "—"} ml</div>
-                <div><strong>Total (auto):</strong> {autoVol.total ?? "—"} ml</div>
-              </div>
-            )}
-
             {/* zoom */}
             <div>
               <label style={{ color: "#fff" }}>Zoom:</label>
@@ -937,6 +928,16 @@ useEffect(() => {
                   </select>
                 </div>
               </>
+            )}
+
+                        {/* volumen automático */}
+            {autoVol && (
+              <div style={{ color: "#fff", marginBottom: "1rem" }}>
+                <br /><br />
+                <div><strong>Volumen pulmón (auto):</strong> {autoVol.lung ?? "—"} ml</div>
+                <div><strong>Volumen fibrosis (auto):</strong> {autoVol.fibrosis ?? "—"} ml</div>
+                <div><strong>Total (auto):</strong> {autoVol.total ?? "—"} ml</div>
+              </div>
             )}
 
             {/* volumen editable */}

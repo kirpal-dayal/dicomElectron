@@ -1,6 +1,6 @@
 // src/components/DoctorView.js
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import api from '../api';
 import { useNavigate } from 'react-router-dom';
 
 import { descargarReporteGeneral } from '../utils/reportes/descargarReportes';
@@ -36,42 +36,61 @@ export default function DoctorView() {
   )
 
   // — Traer todos los expedientes —
-  const fetchAll = async () => {
-    setLoading(true)
-    try {
-      const { data } = await axios.get('http://localhost:5000/expedientes')
-      setAllPatients(data)
-      setPatients(data)
-      setError('')
-    } catch {
-      setError('No se pudieron cargar los expedientes')
-    } finally {
-      setLoading(false)
-    }
+// src/components/DoctorView.js
+// import api from '../api'; // en vez de import axios from 'axios'
+
+// …
+
+const fetchAll = async () => {
+  setLoading(true)
+  try {
+    const { data } = await api.get('/api/expedientes')  // <- sin localhost
+    // Normaliza: garantiza un array aunque el backend devuelva {rows: [...]}, {patients: [...]}, etc.
+    const list =
+      Array.isArray(data) ? data :
+      Array.isArray(data?.patients) ? data.patients :
+      Array.isArray(data?.rows) ? data.rows :
+      []
+
+    setAllPatients(list)
+    setPatients(list)
+    setError(list.length ? '' : 'No se encontraron expedientes')
+  } catch (e) {
+    console.error('[DoctorView] /api/expedientes error:', e?.response?.data || e.message)
+    setError('No se pudieron cargar los expedientes')
+    setAllPatients([])
+    setPatients([])
+  } finally {
+    setLoading(false)
   }
+}
+
+
 
   useEffect(() => {
     fetchAll()
   }, [])
 
   // — Live search: filtra localmente allPatients según searchTerm —
-  useEffect(() => {
-    const term = searchTerm.trim()
-    if (!term) {
-      setPatients(allPatients)
-    } else {
-      setPatients(
-        allPatients.filter(p => p.nss.includes(term))
-      )
-    }
-  }, [searchTerm, allPatients])
+useEffect(() => {
+  const term = searchTerm.trim()
+  const base = Array.isArray(allPatients) ? allPatients : []
+  if (!term) {
+    setPatients(base)
+  } else {
+    setPatients(
+      base.filter(p => String(p?.nss ?? '').includes(term))
+    )
+  }
+}, [searchTerm, allPatients])
+
 
   // — Handlers del modal —
   const handleChange = e => {
-    const { name, value } = e.target
-    setForm(f => ({ ...f, [name]: value }))
-    setFormError('')
-  }
+    const { name, value } = e.target;
+    setForm(f => ({ ...f, [name]: value })); 
+    setFormError('');
+  };
 
   const handleSubmit = async e => {
     e.preventDefault()
@@ -89,7 +108,7 @@ export default function DoctorView() {
       const mm = String(month).padStart(2, '0')
       const dd = String(day).padStart(2, '0')
       const fechaNacimiento = `${year}-${mm}-${dd} 00:00:00`
-      await axios.post('http://localhost:5000/expedientes', {
+      await api.post('/api/expedientes', {
         nss,
         sexo: Number(sex),
         fechaNacimiento,
@@ -110,7 +129,7 @@ export default function DoctorView() {
     const nss = prompt('NSS a eliminar:')
     if (!nss || !window.confirm(`¿Eliminar expediente ${nss}?`)) return
     try {
-      await axios.delete(`http://localhost:5000/expedientes/${nss}`)
+      await api.delete(`/api/expedientes/${nss}`)
       await fetchAll()
     } catch {
       alert('Error al eliminar expediente')
@@ -264,11 +283,12 @@ export default function DoctorView() {
                   <tr key={p.nss}>
                     <td>{p.nss}</td>
                     <td>{new Date(p.fecha_nacimiento).toLocaleDateString()}</td>
-                    <td>{
-                      p.sexo === 1 ? 'Hombre'
-                      : p.sexo === 2 ? 'Mujer'
-                      : 'Otro'
-                    }</td>
+<td>{
+  Number(p.sexo) === 1 ? 'Hombre'
+  : Number(p.sexo) === 2 ? 'Mujer'
+  : 'Otro'
+}</td>
+
                     <td>
                       <button
                         className="btn-primary"

@@ -23,9 +23,10 @@
  */
 
 const db = require('../connectionDb');
-const ENDPOINT = '/expedientes';
+const ENDPOINT = '/api/expedientes';
 
-console.log('🗂 expedientes.js cargado');
+
+console.log(' expedientes.js cargado');
 
 module.exports = (app) => {
   console.log('  → Registrando rutas de', ENDPOINT);

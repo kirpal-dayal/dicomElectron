@@ -1,39 +1,78 @@
 /**
- * routes/expedienteRoutes.js (o expedienteEstudios.js)
- * 
- * Este módulo define rutas relacionadas con los **estudios médicos** de los pacientes
- * dentro de un expediente, incluyendo la creación y consulta de estudios asociados
- * al número de seguridad social (NSS).
- * 
- * - Este archivo es cargado automáticamente por `server.js` al iniciar el backend.
- * - Se monta bajo el prefijo `/api` (por ejemplo, `/api/expedientes/:nss/studies`).
- * - Utiliza `connectionDb.js` para realizar consultas a la base de datos MySQL.
- * - Interactúa con las tablas:
- *    - `expediente` → Información del paciente.
- *    - `estudio`    → Información de estudios DICOM realizados.
- * - Consumido por el frontend en vistas como `ViewPatient.js` y `AnalisisDetallado`.
- * 
- * - POST `/expedientes/:nss/studies`:
- *     Crea un nuevo estudio (registro en tabla `estudio`) asociado a un expediente existente.
- *     Se requiere la fecha del estudio, y puede incluir descripción y volúmenes.
- *
- * - GET `/expedientes/:nss`:
- *     Devuelve los datos del expediente (sexo, fecha nacimiento, etc.)
- *     junto con todos los estudios registrados para ese paciente, ordenados por fecha.
- *
- * Estas rutas se utilizan en el frontend para visualizar y registrar estudios
- * relacionados con cada paciente, así como para cargar datos en vistas clínicas.
- *
- * - El NSS funciona como clave primaria para vincular expedientes y estudios.
- * - Las fechas deben estar en formato SQL: `YYYY-MM-DD HH:mm:ss`.
+ * routes/expedienteRoutes.js
+ * Rutas de EXPEDIENTE del paciente (lista, crear, eliminar) + estudios por NSS.
  */
-
 const express = require('express');
 const db = require('../connectionDb');
 const router = express.Router();
 
-// routes/expedienteRoutes.js
-// routes/expedienteRoutes.js
+/* =========================
+ *  EXPEDIENTES (pacientes)
+ * ========================= */
+
+// GET /api/expedientes  -> lista todos los expedientes
+router.get('/expedientes', (req, res) => {
+  const sql = `
+    SELECT nss, sexo, fecha_nacimiento, fecha_creacion
+    FROM expediente
+    ORDER BY fecha_creacion DESC
+  `;
+  db.query(sql, (err, rows) => {
+    if (err) {
+      console.error('[expedientes][GET] DB error:', err);
+      return res.status(500).send('Error al listar expedientes');
+    }
+    res.json(rows || []);
+  });
+});
+
+// POST /api/expedientes  -> crea/actualiza un expediente (lo que usa DoctorView)
+router.post('/expedientes', (req, res) => {
+  const { nss, sexo, fechaNacimiento, idDocCreador = null } = req.body || {};
+  if (!nss || !sexo || !fechaNacimiento) {
+    return res.status(400).send('Faltan campos: nss, sexo, fechaNacimiento');
+  }
+
+  // Ajusta los nombres de columnas a tu schema real.
+  const sql = `
+    INSERT INTO expediente (nss, sexo, fecha_nacimiento, id_doc_creador)
+    VALUES (?, ?, ?, ?)
+    ON DUPLICATE KEY UPDATE
+      sexo = VALUES(sexo),
+      fecha_nacimiento = VALUES(fecha_nacimiento)
+  `;
+  db.query(sql, [nss, Number(sexo), fechaNacimiento, idDocCreador], (err) => {
+    if (err) {
+      console.error('[expedientes][POST] DB error:', err);
+      return res.status(500).send('Error al crear/actualizar expediente');
+    }
+    res.status(201).send('Expediente creado/actualizado');
+  });
+});
+
+// DELETE /api/expedientes/:nss -> elimina expediente
+router.delete('/expedientes/:nss', (req, res) => {
+  const { nss } = req.params;
+  if (!nss) return res.status(400).send('Falta NSS');
+
+  const sql = `DELETE FROM expediente WHERE nss = ?`;
+  db.query(sql, [nss], (err, result) => {
+    if (err) {
+      console.error('[expedientes][DELETE] DB error:', err);
+      return res.status(500).send('Error al eliminar expediente');
+    }
+    if (result.affectedRows === 0) {
+      return res.status(404).send('Expediente no encontrado');
+    }
+    res.sendStatus(204); // eliminado
+  });
+});
+
+/* =========================
+ *  ESTUDIOS por expediente
+ * ========================= */
+
+// POST /api/:nss/studies  -> crear/actualizar estudio
 router.post('/:nss/studies', (req, res) => {
   const { nss } = req.params;
   const {
@@ -56,16 +95,14 @@ router.post('/:nss/studies', (req, res) => {
 
   db.query(sql, [fecha, nss, descripcion, volumen_automatico, volumen_manual], (err) => {
     if (err) {
-      console.error('Error al crear/actualizar estudio:', err);
+      console.error('[studies][POST] DB error:', err);
       return res.status(500).send('Error al crear/actualizar estudio');
     }
     res.status(201).send('Estudio creado/actualizado');
   });
 });
 
-// GET /expedientes/:nss
-// Devuelve un expediente y todos sus estudios
-// router.get(':nss', (req, res) => {
+// GET /api/expedientes/:nss -> trae un expediente + todos sus estudios
 router.get('/expedientes/:nss', (req, res) => {
   const { nss } = req.params;
 
@@ -76,12 +113,11 @@ router.get('/expedientes/:nss', (req, res) => {
   `;
   db.query(expSql, [nss], (err, expRows) => {
     if (err) {
-      console.error(err);
+      console.error('[expediente][GET] DB error:', err);
       return res.status(500).send('Error al buscar expediente');
     }
-    if (expRows.length === 0) {
-      return res.status(404).send('Expediente no encontrado');
-    }
+    if (!expRows.length) return res.status(404).send('Expediente no encontrado');
+
     const expediente = expRows[0];
 
     const estSql = `
@@ -92,7 +128,7 @@ router.get('/expedientes/:nss', (req, res) => {
     `;
     db.query(estSql, [nss], (err2, estRows) => {
       if (err2) {
-        console.error(err2);
+        console.error('[expediente][GET studies] DB error:', err2);
         return res.status(500).send('Error al cargar estudios');
       }
       expediente.studies = estRows;
