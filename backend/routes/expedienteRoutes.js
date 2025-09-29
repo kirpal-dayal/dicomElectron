@@ -33,14 +33,14 @@ router.post('/expedientes', (req, res) => {
     return res.status(400).send('Faltan campos: nss, sexo, fechaNacimiento');
   }
 
-  // Ajusta los nombres de columnas a tu schema real.
-  const sql = `
-    INSERT INTO expediente (nss, sexo, fecha_nacimiento, id_doc_creador)
-    VALUES (?, ?, ?, ?)
-    ON DUPLICATE KEY UPDATE
-      sexo = VALUES(sexo),
-      fecha_nacimiento = VALUES(fecha_nacimiento)
-  `;
+const sql = `
+  INSERT INTO expediente (nss, sexo, fecha_nacimiento, id_docCreador, fecha_creacion)
+  VALUES (?, ?, ?, ?, NOW())
+  ON DUPLICATE KEY UPDATE
+    sexo = VALUES(sexo),
+    fecha_nacimiento = VALUES(fecha_nacimiento),
+    id_docCreador = VALUES(id_docCreador)
+`;
   db.query(sql, [nss, Number(sexo), fechaNacimiento, idDocCreador], (err) => {
     if (err) {
       console.error('[expedientes][POST] DB error:', err);
