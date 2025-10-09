@@ -371,7 +371,7 @@ if (embedded) {
           quality={vtkData.quality}
         />
       ) : (
-        <div style={{ color: "#aaa", padding: 16 }}>Cargando volumen…</div>
+        <div style={{ color: "#aaa", padding: 16 }}></div>
       )}
     </div>
   );

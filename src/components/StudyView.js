@@ -207,52 +207,55 @@ export default function StudyView() {
   }, [dicomList]);
 
   // ---------- Mostrar imagen seleccionada ----------
-  useEffect(() => {
-    const element = viewerRef.current;
-    if (!element || selectedIndex === null || !dicomList[selectedIndex]) return;
+useEffect(() => {
+  const element = viewerRef.current;
+  if (!element || selectedIndex === null || !dicomList[selectedIndex]) return;
 
+  // 1) habilitar de forma segura
+  let isEnabled = true;
+  try { cornerstone.getEnabledElement(element); }
+  catch { isEnabled = false; }
+  if (!isEnabled) {
+    cornerstone.enable(element);
+    isViewerEnabledRef.current = true;
+  }
+
+  // 2) cargar y mostrar
+  const imageId = `wadouri:${window.location.origin}${dicomList[selectedIndex]}`;
+  cornerstone.loadAndCacheImage(imageId)
+    .then((image) => {
+      cornerstone.displayImage(element, image);
+
+      const { pixelSpacing } = extractSpacingFromImage(image) || {};
+      setDicomSpacing(prev => ({
+        row: Number.isFinite(prev.row) && prev.row > 0 ? prev.row : (Number(pixelSpacing?.row) || 1),
+        col: Number.isFinite(prev.col) && prev.col > 0 ? prev.col : (Number(pixelSpacing?.col) || 1),
+        slice: Number.isFinite(prev.slice) && prev.slice > 0 ? prev.slice : 1,
+      }));
+
+      const vp = cornerstone.getDefaultViewportForImage(element, image);
+      vp.scale = scale;
+      const imgWL = num(image.windowCenter, -600);
+      const imgWW = Math.max(1, num(image.windowWidth, 1500));
+      vp.voi = {
+        windowCenter: Number.isFinite(windowCenter) ? windowCenter : imgWL,
+        windowWidth:  Number.isFinite(windowWidth)  ? windowWidth  : imgWW,
+      };
+      cornerstone.setViewport(element, vp);
+      drawOverlayLines();
+    })
+    .catch((err) => console.error("Error al cargar imagen:", err));
+
+  // 3) MUY IMPORTANTE: cleanup del MISMO elemento que habilitaste
+  return () => {
     try {
-      if (!isViewerEnabledRef.current) {
-        cornerstone.enable(element);
-        isViewerEnabledRef.current = true;
-      }
-
-      const imageId = `wadouri:${window.location.origin}${dicomList[selectedIndex]}`;
-
-      cornerstone.loadAndCacheImage(imageId)
-        .then((image) => {
-          cornerstone.displayImage(element, image);
-
-          // Completar row/col si faltan (sin usar ?? con ||)
-          const { pixelSpacing } = extractSpacingFromImage(image) || {};
-          setDicomSpacing((prev) => ({
-            row: Number.isFinite(prev.row) && prev.row > 0
-              ? prev.row
-              : (Number(pixelSpacing && pixelSpacing.row) || 1),
-            col: Number.isFinite(prev.col) && prev.col > 0
-              ? prev.col
-              : (Number(pixelSpacing && pixelSpacing.col) || 1),
-            slice: Number.isFinite(prev.slice) && prev.slice > 0 ? prev.slice : 1,
-          }));
-
-          const viewport = cornerstone.getDefaultViewportForImage(element, image);
-          viewport.scale = scale;
-
-          const imgWL = num(image.windowCenter, -600);
-          const imgWW = Math.max(1, num(image.windowWidth, 1500));
-          viewport.voi = {
-            windowCenter: Number.isFinite(windowCenter) ? windowCenter : imgWL,
-            windowWidth:  Number.isFinite(windowWidth)  ? windowWidth  : imgWW,
-          };
-
-          cornerstone.setViewport(element, viewport);
-          drawOverlayLines();
-        })
-        .catch((err) => console.error("Error al cargar imagen:", err));
-    } catch (err) {
-      console.error("Error inesperado en displayImage:", err);
-    }
-  }, [selectedIndex, dicomList, scale, windowCenter, windowWidth]);
+      // opcional: limpia viewport antes de deshabilitar
+      try { cornerstone.reset(element); } catch {}
+      cornerstone.disable(element);
+    } catch {}
+    isViewerEnabledRef.current = false;
+  };
+}, [selectedIndex, dicomList, scale, windowCenter, windowWidth]);
 
   // Redibuja en cambios de layers/zoom/slice
   useEffect(() => {
@@ -267,6 +270,16 @@ export default function StudyView() {
     if (!el || selectedIndex === null) return;
     applyVOI(el, windowCenter, windowWidth);
   }, [windowCenter, windowWidth, selectedIndex]);
+
+useEffect(() => {
+  return () => {
+    const el = viewerRef.current;
+    if (el) {
+      try { cornerstone.disable(el); } catch {}
+    }
+    isViewerEnabledRef.current = false;
+  };
+}, []);
 
   // ---------- Cargar capas + volumen editable inicial ----------
 // helper chiquito para asegurar multi-contour en memoria
@@ -501,7 +514,7 @@ useEffect(() => {
     const element = viewerRef.current;
     if (!canvas || !element) return;
 
-    try { cornerstone.getEnabledElement(element); } catch { cornerstone.enable(element); }
+    try { cornerstone.getEnabledElement(element); } catch { return; }
 
     const rect = element.getBoundingClientRect();
     canvas.width = rect.width;
@@ -950,7 +963,7 @@ useEffect(() => {
             )}
           </div>
 
-          <div className="main-panel">
+          <div className="main-panel" key={`${folder}-${selectedIndex ?? 'closed'}`}>
             <div ref={viewerRef} className="fullscreen-viewer" />
             <canvas ref={overlayRef} className="overlay-canvas" onClick={handleOverlayClick} />
           </div>
