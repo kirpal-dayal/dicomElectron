@@ -141,6 +141,11 @@ export default function StudyView() {
   const [windowWidth, setWindowWidth] = useState(1500);
   const [windowCenter, setWindowCenter] = useState(-600);
 
+  // Estado de volcado/segmentación y flag para evitar repetir refresco
+  const [status, setStatus] = useState(null);
+  const [hasSyncedAfterReady, setHasSyncedAfterReady] = useState(false);
+
+
   // ---------- refs “frescos” para handlers ----------
   const layersRef = useRef(layers);
   useEffect(() => { layersRef.current = layers; }, [layers]);
@@ -285,110 +290,69 @@ useEffect(() => {
 // helper chiquito para asegurar multi-contour en memoria
 const toMulti = (arr) => Array.isArray(arr?.[0]) ? arr : (Array.isArray(arr) ? [arr] : []);
 
-// --------- Cargar capas + volumen inicial ---------
-useEffect(() => {
-  const fetchAllEditableLayers = async () => {
-    try {
-      //  asegúrate que en backend esta ruta ya devuelve índices DESDE BD
-      // (el JSON puede ser { "0": true, "1": true, ... } como antes)
-      const { data: validIndexMap } = await axios.get(
-        `/api/segment/valid-indices/${folder}`
-      );
+const fetchAllEditableLayers = useCallback(async () => {
+  try {
+    const { data: validIndexMap } = await axios.get(`/api/segment/valid-indices/${folder}`);
 
-      const totalSlices = dicomList.length;
-      const layersPorSlice = new Array(totalSlices).fill(null);
+    const totalSlices = dicomList.length;
+    const layersPorSlice = new Array(totalSlices).fill(null);
 
-      await Promise.all(
-        Object.entries(validIndexMap).map(async ([indexStr]) => {
-          const index = parseInt(indexStr, 10);
-          const padded = String(index).padStart(3, "0");
+    await Promise.all(
+      Object.entries(validIndexMap).map(async ([indexStr]) => {
+        const index = parseInt(indexStr, 10);
+        const padded = String(index).padStart(3, "0");
 
-          // Mantenemos "modelo" desde archivo, y cambiamos "editable" a BD
-          const [modelo, dbMask] = await Promise.all([
-            axios
-              .get(`/api/segment/mask-json/${folder}/${padded}`)
-              .then(r => r.data)
-              .catch(() => null),
-            axios
-              .get(`/api/segment/mask-db-by-folder/${folder}/${index}`) // <— NUEVO: BD (prefer manual)
-              .then(r => r.data)
-              .catch(async () => {
-                // fallback a tu JSON _simplified si aún no hay BD
-                try {
-                  const j = await axios.get(`/api/segment/mask-json/${folder}/${padded}_simplified`);
-                  return { lung: j.data?.lung_editable || [], fibrosis: j.data?.fibrosis_editable || [] };
-                } catch {
-                  return null;
-                }
-              }),
-          ]);
+        const [modelo, dbMask] = await Promise.all([
+          axios.get(`/api/segment/mask-json/${folder}/${padded}`).then(r => r.data).catch(() => null),
+          axios.get(`/api/segment/mask-db-by-folder/${folder}/${index}`).then(r => r.data).catch(async () => {
+            try {
+              const j = await axios.get(`/api/segment/mask-json/${folder}/${padded}_simplified`);
+              return { lung: j.data?.lung_editable || [], fibrosis: j.data?.fibrosis_editable || [] };
+            } catch { return null; }
+          }),
+        ]);
 
-          const L = [];
-          if (modelo) {
-            L.push({
-              name: "Pulmón (modelo)",
-              points: toMulti(modelo.lung),
-              visible: true,
-              color: "lime",
-              closed: true,
-              editable: false,
-            });
-            L.push({
-              name: "Fibrosis (modelo)",
-              points: toMulti(modelo.fibrosis),
-              visible: true,
-              color: "red",
-              closed: true,
-              editable: false,
-            });
-          }
-          if (dbMask) {
-            L.push({
-              name: "Pulmón (editable)",
-              points: toMulti(dbMask.lung),        // <— viene normalizado desde BD
-              visible: true,
-              color: "yellow",
-              closed: true,
-              editable: true,
-            });
-            L.push({
-              name: "Fibrosis (editable)",
-              points: toMulti(dbMask.fibrosis),    // <— idem
-              visible: true,
-              color: "orange",
-              closed: true,
-              editable: true,
-            });
-          }
-
-          layersPorSlice[index] = L;
-        })
-      );
-
-      // spacings (igual que antes)
-      let px = { row: Number(dicomSpacing.row), col: Number(dicomSpacing.col) };
-      let dz = Number(dicomSpacing.slice);
-      if (!Number.isFinite(px.row) || !Number.isFinite(px.col) || !Number.isFinite(dz)) {
-        const robust = await getRobustStackSpacing(dicomList);
-        if (robust) {
-          px = { row: robust.pixelSpacing.row, col: robust.pixelSpacing.col };
-          dz = robust.sliceSpacing;
-          setDicomSpacing({ row: px.row, col: px.col, slice: dz });
-        } else {
-          px = { row: 1, col: 1 }; dz = 1;
+        const L = [];
+        if (modelo) {
+          L.push({ name: "Pulmón (modelo)",   points: toMulti(modelo.lung),     visible: true, color: "lime",   closed: true, editable: false });
+          L.push({ name: "Fibrosis (modelo)", points: toMulti(modelo.fibrosis), visible: true, color: "red",    closed: true, editable: false });
         }
+        if (dbMask) {
+          L.push({ name: "Pulmón (editable)",   points: toMulti(dbMask.lung),     visible: true, color: "yellow", closed: true, editable: true  });
+          L.push({ name: "Fibrosis (editable)", points: toMulti(dbMask.fibrosis), visible: true, color: "orange", closed: true, editable: true  });
+        }
+
+        layersPorSlice[index] = L;
+      })
+    );
+
+    // recalcular spacing robusto si hace falta
+    let px = { row: Number(dicomSpacing.row), col: Number(dicomSpacing.col) };
+    let dz = Number(dicomSpacing.slice);
+    if (!Number.isFinite(px.row) || !Number.isFinite(px.col) || !Number.isFinite(dz)) {
+      const robust = await getRobustStackSpacing(dicomList);
+      if (robust) {
+        px = { row: robust.pixelSpacing.row, col: robust.pixelSpacing.col };
+        dz = robust.sliceSpacing;
+        setDicomSpacing({ row: px.row, col: px.col, slice: dz });
+      } else {
+        px = { row: 1, col: 1 }; dz = 1;
       }
-
-      const volumenGlobal = calcularVolumenEditableGlobal(layersPorSlice, px, dz);
-      setEditableVolumen(volumenGlobal);
-      setAllLayersPerSlice(layersPorSlice);
-    } catch (err) {
-      console.error("Error al cargar capas:", err);
     }
-  };
 
+    const volumenGlobal = calcularVolumenEditableGlobal(layersPorSlice, px, dz);
+    setEditableVolumen(volumenGlobal);
+    setAllLayersPerSlice(layersPorSlice);
+  } catch (err) {
+    console.error("Error al cargar capas:", err);
+  }
+}, [folder, dicomList, dicomSpacing.row, dicomSpacing.col, dicomSpacing.slice]);
+
+// --------- Cargar capas + volumen inicial ---------
+// --- helper: asegurar multi-contour en memoria (lo tienes ya) ---
+useEffect(() => {
   if (dicomList.length > 0) fetchAllEditableLayers();
-}, [dicomList, folder, dicomSpacing.row, dicomSpacing.col, dicomSpacing.slice]);
+}, [dicomList, fetchAllEditableLayers]);
 
   // ---------- Volumen automático (front + guardar 1 vez en BD) ----------
   const normalizeAuto = (d) => {
@@ -507,6 +471,53 @@ useEffect(() => {
       console.error("Error al guardar edición/volumen:", err);
     }
   }
+// --- Polling de estado de volcado/segmentación ---
+useEffect(() => {
+  let stop = false;
+  let timer = null;
+
+  const poll = async () => {
+    try {
+      const { data } = await axios.get(`/api/segment/status/${folder}`);
+      if (stop) return;
+      setStatus(data);
+
+      if (data?.ready && !hasSyncedAfterReady) {
+        // Ya hay datos en BD → recargo capas y volumen automático una sola vez
+        try {
+          await fetchAllEditableLayers();
+        } catch {}
+        try {
+          const { data: vol } = await axios.get(`/api/segment/volumen/${folder}`);
+          const auto = {
+            lung: Number(vol?.lung_volume_ml) || null,
+            fibrosis: Number(vol?.fibrosis_volume_ml) || null,
+            total: Number(vol?.total_volume_ml) || null,
+          };
+          setAutoVol(auto);
+        } catch {}
+        setHasSyncedAfterReady(true);
+      }
+
+      // Si no está listo, reintentar
+      if (!data?.ready) {
+        timer = setTimeout(poll, 2500);
+      }
+    } catch {
+      if (!stop) timer = setTimeout(poll, 2500);
+    }
+  };
+
+  // arranca polling si tenemos lista de dicoms (estudio abierto)
+  if (dicomList.length > 0) {
+    poll();
+  }
+
+  return () => {
+    stop = true;
+    if (timer) clearTimeout(timer);
+  };
+}, [folder, dicomList.length, hasSyncedAfterReady, fetchAllEditableLayers]);
 
   // ---------- Dibujo overlay ----------
   const drawOverlayLines = () => {

@@ -1,4 +1,4 @@
-# segmentation.py  (orden Z robusto + Δz robusto + logs por hilo)
+# segmentation.py  (orden Z robusto + Δz robusto + logs por hilo + tf.keras consistente)
 
 import os
 import glob
@@ -8,24 +8,18 @@ import cv2
 import pydicom as pd
 from pydicom.misc import is_dicom
 from tifffile import imwrite
-from keras.models import load_model
-import segmentation_models as sm
 
-from sklearn.cluster import DBSCAN
-from sklearn.neighbors import NearestNeighbors
-from kneed import KneeLocator
+# === IMPORTANTE: elegir framework ANTES de importar segmentation_models ===
+# Usa tf.keras para ser consistente con TensorFlow y evitar el modo "keras" puro.
+os.environ["SM_FRAMEWORK"] = "tf.keras"
 
-from skimage.measure import approximate_polygon
-
-import threading
+import logging
 import sys
 import time
-import logging
+import threading
 import concurrent.futures
 from math import isfinite
-
-# === IMPORTANT: framework para segmentation_models ===
-os.environ.setdefault("SM_FRAMEWORK", "tf.keras")
+from argparse import ArgumentParser
 
 # ==== Forzar salida “unbuffered-like” para ver logs en tiempo real ====
 try:
@@ -40,8 +34,10 @@ except Exception:
 class _FlushingStreamHandler(logging.StreamHandler):
     def emit(self, record):
         super().emit(record)
-        try: self.flush()
-        except Exception: pass
+        try:
+            self.flush()
+        except Exception:
+            pass
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -51,7 +47,42 @@ _stdout_handler = _FlushingStreamHandler(stream=sys.stdout)
 _stdout_handler.setFormatter(logging.Formatter('[%(asctime)s][%(threadName)s] %(message)s', datefmt='%H:%M:%S'))
 logger.addHandler(_stdout_handler)
 
-from data_to_numpyarr import data2numpyarr  # integración para artefactos
+# Usar tf.keras (consistente con SM_FRAMEWORK)
+try:
+    from tensorflow.keras.models import load_model
+except Exception as e:
+    logger.error("[INIT] No se pudo importar tensorflow.keras: %s", e)
+    raise
+
+# Al importar segmentation_models, verás su banner "using `tf.keras` framework."
+import segmentation_models as sm
+
+# (Opcional) integración para artefactos; proveemos fallback
+try:
+    from data_to_numpyarr import data2numpyarr  # integración para DBSCAN
+except Exception:
+    logger.info("[DBSCAN] data_to_numpyarr no disponible, usando fallback simple.")
+    def data2numpyarr(study_all_contours_lung, spacing_between_slices):
+        # Fallback: tomar centroides (x,y) de cada contorno + z como índice
+        pts = []
+        z = 0.0
+        for z_idx, cnts in enumerate(study_all_contours_lung):
+            for c in cnts:
+                if c is None or len(c) == 0:
+                    continue
+                arr = np.asarray(c, dtype=float)
+                cx = float(np.mean(arr[:, 0]))
+                cy = float(np.mean(arr[:, 1]))
+                pts.append([cx, cy, z_idx * float(spacing_between_slices or 1.0)])
+        if not pts:
+            # Evita que DBSCAN explote
+            pts = [[0.0, 0.0, 0.0]]
+        return np.array(pts, dtype=float)
+
+from sklearn.cluster import DBSCAN
+from sklearn.neighbors import NearestNeighbors
+from kneed import KneeLocator
+from skimage.measure import approximate_polygon
 
 
 # --------------------------
@@ -92,9 +123,24 @@ def test_U_net_estimation(X_test, n_classes):
     BACKBONE = "vgg16"
     preprocess_input = sm.get_preprocessing(BACKBONE)
     model_path = os.path.join(os.path.dirname(__file__), "best_result.hdf5")
-    model = load_model(model_path, compile=False)
+
+    if not os.path.exists(model_path):
+        logger.error(f"[MODEL] No se encontró el archivo del modelo: {model_path}")
+        raise FileNotFoundError(f"Modelo no encontrado: {model_path}")
+
+    try:
+        model = load_model(model_path, compile=False)
+    except Exception as e:
+        logger.error(f"[MODEL] Error cargando modelo ({model_path}): {e}")
+        raise
+
     X_test1 = preprocess_input(X_test)
-    y_pred = model.predict(X_test1, verbose=0)
+    try:
+        y_pred = model.predict(X_test1, verbose=0)
+    except Exception as e:
+        logger.error(f"[MODEL] Error en model.predict: {e}")
+        raise
+
     y_pred_argmax = np.argmax(y_pred, axis=3)
     return y_pred_argmax
 
@@ -146,7 +192,6 @@ def _simplify_contours(contours_xy, tolerance=2.0, scale_x=1.0, scale_y=1.0):
     return out
 
 def _normal_from_iop(iop):
-    # iop: 6 valores [rowCosines(3), colCosines(3)]
     row = np.array(iop[:3], dtype=float)
     col = np.array(iop[3:], dtype=float)
     n = np.cross(row, col)
@@ -162,15 +207,14 @@ def _zpos_from_ipp_iop(ds):
         n = _normal_from_iop(iop)
         if n is None:
             return float(ipp[2])  # fallback: eje Z del paciente
-        # proyección escalar
         return float(np.dot(np.array(ipp, dtype=float), n))
     except Exception:
-        # intentos de fallback
+        # fallbacks
         try:
             return float(ds.SliceLocation)
         except Exception:
             try:
-                ipp = [float(x) for x in ds.get((0x0020,0x0032)).value]
+                ipp = [float(x) for x in ds.get((0x0020, 0x0032)).value]
                 return float(ipp[2])
             except Exception:
                 return None
@@ -179,25 +223,29 @@ def _zpos_from_ipp_iop(ds):
 # --------------------------
 #   Pipeline principal
 # --------------------------
-def dicom_segmentation(path_original, size, n_clases, enable_dbscan_filter=True, debug=False):
+def dicom_segmentation(path_original, size=(256, 256), n_clases=3, enable_dbscan_filter=True, debug=False):
     """
     Segmenta un estudio DICOM, con:
       - Orden correcto de slices por posición física (IPP+IOP)
       - Δz robusto (mediana de las diferencias)
       - Logs por hilo
     """
+    logger.info(f"Segmentation Models: usando `{os.environ.get('SM_FRAMEWORK')}` framework.")
+    logger.info(f"[INPUT] path_original = {path_original}")
+
     SIZE_X, SIZE_Y = size
 
-    # 1) Enumerar archivos (filtrar obvios no-DICOM p/evitar ruido en orden)
+    # 1) Enumerar archivos (filtrar obvios no-DICOM)
     files = sorted(glob.glob(os.path.join(path_original, "*")))
     files = [f for f in files if os.path.isfile(f) and not f.lower().endswith((".zip", ".gz", ".rar"))]
     if debug:
-        logger.info(f"[INFO] Archivos candidatos: {len(files)}")
+        logger.info(f"[INFO] Archivos candidatos: {len(files)} en {path_original}")
 
-    # --- Estado para tablero en vivo de hilos ---
+    # --- Estado para tablero de hilos ---
     active = {}
     active_lock = threading.Lock()
     stop_reporter = threading.Event()
+
     def reporter():
         while not stop_reporter.is_set():
             with active_lock:
@@ -206,6 +254,7 @@ def dicom_segmentation(path_original, size, n_clases, enable_dbscan_filter=True,
                 snapshot = ", ".join(f"{name}:{os.path.basename(fname)}" for name, fname in items)
                 logger.info(f"[THREADS] activos={len(items)} -> {snapshot}")
             time.sleep(1.0)
+
     threading.Thread(target=reporter, daemon=True, name="Reporter").start()
 
     def process_dicom(idx, img_path):
@@ -213,13 +262,11 @@ def dicom_segmentation(path_original, size, n_clases, enable_dbscan_filter=True,
         tname = threading.current_thread().name
         base = os.path.basename(img_path)
         logger.info(f"start  -> {base}")
-        with active_lock: active[tname] = img_path
+        with active_lock:
+            active[tname] = img_path
 
         t0 = time.perf_counter()
         try:
-            if not is_dicom(img_path):
-                # Aun si no “parece” DICOM, intentamos leer
-                pass
             try:
                 ds = pd.dcmread(img_path, force=True)
                 if not hasattr(ds, "PixelData") or ds.get("PixelData") is None or ds.get("Rows") is None:
@@ -242,7 +289,6 @@ def dicom_segmentation(path_original, size, n_clases, enable_dbscan_filter=True,
 
             # claves para ORDENAR
             zpos = _zpos_from_ipp_iop(ds)
-            inst = None
             try:
                 inst = int(getattr(ds, "InstanceNumber", None) or 0)
             except Exception:
@@ -259,11 +305,12 @@ def dicom_segmentation(path_original, size, n_clases, enable_dbscan_filter=True,
                 "name": base,
             }
         finally:
-            with active_lock: active.pop(tname, None)
+            with active_lock:
+                active.pop(tname, None)
             dt = time.perf_counter() - t0
             logger.info(f"finish -> {base} ({dt:0.3f}s)")
 
-    # 2) Carga concurrente (sin perder el orden: lo repondremos con zpos)
+    # 2) Carga concurrente
     results = []
     loader_prog = ProgressReporter("[LOAD DICOMs]", len(files))
     with concurrent.futures.ThreadPoolExecutor(max_workers=min(8, os.cpu_count() or 4), thread_name_prefix="DICOM") as ex:
@@ -279,7 +326,7 @@ def dicom_segmentation(path_original, size, n_clases, enable_dbscan_filter=True,
     if not results:
         raise ValueError(f"No se encontraron imágenes DICOM utilizables en: {path_original}")
 
-    # 3) ORDENAR por zpos (robusto). Fallback: instance, luego nombre.
+    # 3) ORDEN por zpos (robusto). Fallback: instance, luego nombre.
     def _sort_key(r):
         z = r["zpos"]
         inst = r["instance"]
@@ -292,13 +339,12 @@ def dicom_segmentation(path_original, size, n_clases, enable_dbscan_filter=True,
         )
     results.sort(key=_sort_key)
 
-    # --- Sanity check de orientación: ¿zpos y InstanceNumber avanzan al mismo sentido?
+    # Sanity check de orientación
     z_sorted = [r["zpos"] for r in results if r["zpos"] is not None and isfinite(r["zpos"])]
     inst_sorted = [r["instance"] for r in results if r["instance"] is not None]
 
     def _median_sign(diff_list):
-        if len(diff_list) < 1:
-            return 0
+        if len(diff_list) < 1: return 0
         med = float(np.median(diff_list))
         if med > 0: return 1
         if med < 0: return -1
@@ -307,33 +353,31 @@ def dicom_segmentation(path_original, size, n_clases, enable_dbscan_filter=True,
     sign_z   = _median_sign(np.diff(z_sorted))    if len(z_sorted)  >= 2 else 0
     sign_ins = _median_sign(np.diff(inst_sorted)) if len(inst_sorted)>= 2 else 0
 
-    # Si ambos existen y son opuestos, invertimos el orden de slices
     if sign_z != 0 and sign_ins != 0 and sign_z != sign_ins:
         logger.info("[ORIENT] zpos y InstanceNumber avanzan en sentidos opuestos → invirtiendo stack")
         results.reverse()
     elif sign_z == 0 and sign_ins < 0:
-        # Sin señal clara en zpos pero InstanceNumber decrece: invierte
         logger.info("[ORIENT] InstanceNumber decreciente y zpos sin señal → invirtiendo stack")
         results.reverse()
-
 
     # 4) Construir arrays ordenados
     arr_original = np.stack([r["img_resized"] for r in results]).astype(np.uint16)  # (N,SIZE_Y,SIZE_X)
     ds_valids    = [r["ds"] for r in results]
     valid_paths  = [r["path"] for r in results]
-    # tomamos tamaño original del primer slice ORDENADO
+    # tamaño original del PRIMER slice ORDENADO
     first_shape = results[0]["orig_shape"]
     img_size = (int(first_shape[0]), int(first_shape[1]))  # (rows, cols)
 
     # 5) PixelSpacing y escalas (de original a SIZE)
     ds_ref = ds_valids[0]
     original_pixel_spacing = getattr(ds_ref, "PixelSpacing", [1.0, 1.0])
+    # PixelSpacing = [row_spacing, col_spacing] -> [mm/px en y, mm/px en x]
     pixel_relation = float(img_size[0]) / float(SIZE_Y)
     pixelen_y = float(original_pixel_spacing[0]) * pixel_relation
     pixelen_x = float(original_pixel_spacing[1]) * pixel_relation
     pixelarea = pixelen_x * pixelen_y
 
-    # 6) Δz ROBUSTO: mediana de diferencias sucesivas de zpos (proyectadas)
+    # 6) Δz ROBUSTO
     z_series = [r["zpos"] for r in results if r["zpos"] is not None and isfinite(r["zpos"])]
     spacing_between_slices = None
     if len(z_series) >= 2:
@@ -342,7 +386,6 @@ def dicom_segmentation(path_original, size, n_clases, enable_dbscan_filter=True,
         if diffs.size > 0:
             spacing_between_slices = float(np.median(diffs))
     if not (isfinite(spacing_between_slices) and spacing_between_slices > 0):
-        # fallback a tags del primer slice
         spacing_between_slices = _safe_getattr(ds_ref, "SpacingBetweenSlices", default=None, cast=float)
         if spacing_between_slices is None:
             spacing_between_slices = _safe_getattr(ds_ref, "SliceThickness", default=1.0, cast=float)
@@ -398,7 +441,15 @@ def dicom_segmentation(path_original, size, n_clases, enable_dbscan_filter=True,
 
     # 10) Construcción máscaras + JSON
     output_dir = os.path.join(path_original, "segmentaciones_por_dicom")
-    os.makedirs(output_dir, exist_ok=True)
+    try:
+        os.makedirs(output_dir, exist_ok=True)
+        # Sanity write
+        with open(os.path.join(output_dir, "sanity.txt"), "w", encoding="utf-8") as f:
+            f.write("hello from segmentation\n")
+        logger.info("[IO] sanity.txt escrito en %s", output_dir)
+    except Exception as e:
+        logger.error(f"[IO] No se pudo preparar output_dir {output_dir}: {e}")
+        raise
 
     filtered_masks = []
     lung_pixels_pred = []
@@ -410,6 +461,7 @@ def dicom_segmentation(path_original, size, n_clases, enable_dbscan_filter=True,
 
     build_prog = ProgressReporter("[BUILD SLICES]", len(study_all_contours_lung))
     for idx, (cnts_lung_xy, cnts_fib_xy) in enumerate(zip(study_all_contours_lung, study_all_contours_fibrosis)):
+        # Filtrado por DBSCAN (opcional)
         filtered_lung_cnts = []
         if enable_dbscan_filter and labels is not None and most_common_label is not None:
             for c in cnts_lung_xy:
@@ -443,13 +495,16 @@ def dicom_segmentation(path_original, size, n_clases, enable_dbscan_filter=True,
         lung_json_s = _simplify_contours(filtered_lung_cnts, tolerance=2.0, scale_x=scale_x, scale_y=scale_y)
         fib_json_s  = _simplify_contours([c for c in cnts_fib_xy if c is not None and len(c) > 0], tolerance=2.0, scale_x=scale_x, scale_y=scale_y)
 
-        with open(os.path.join(output_dir, f"mask_{idx:03d}.json"), "w") as f:
-            json.dump({"lung": lung_json, "fibrosis": fib_json}, f, indent=2)
+        try:
+            with open(os.path.join(output_dir, f"mask_{idx:03d}.json"), "w", encoding="utf-8") as f:
+                json.dump({"lung": lung_json, "fibrosis": fib_json}, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            logger.error(f"[IO] No se pudo escribir mask_{idx:03d}.json: {e}")
 
         try:
-            json_str = json.dumps({"lung_editable": lung_json_s, "fibrosis_editable": fib_json_s}, indent=2)
-            json.loads(json_str)
-            with open(os.path.join(output_dir, f"mask_{idx:03d}_simplified.json"), "w") as f:
+            json_str = json.dumps({"lung_editable": lung_json_s, "fibrosis_editable": fib_json_s}, indent=2, ensure_ascii=False)
+            json.loads(json_str)  # sanity
+            with open(os.path.join(output_dir, f"mask_{idx:03d}_simplified.json"), "w", encoding="utf-8") as f:
                 f.write(json_str)
         except Exception as e:
             if debug: logger.info(f"[WARN] No se pudo guardar mask_{idx:03d}_simplified.json: {e}")
@@ -476,32 +531,57 @@ def dicom_segmentation(path_original, size, n_clases, enable_dbscan_filter=True,
         "total_volume_ml": round(abs(total_volume_ml), 2),
     }
 
-    with open(os.path.join(output_dir, "volumenes.json"), "w") as f:
-        json.dump(volumen_data, f, indent=2)
+    try:
+        with open(os.path.join(output_dir, "volumenes.json"), "w", encoding="utf-8") as f:
+            json.dump(volumen_data, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        logger.error(f"[IO] No se pudo escribir volumenes.json: {e}")
 
-    # 12) Guardar TIFFs
-    imwrite(
-        os.path.join(output_dir, "ct_original.tif"),
-        arr_original,
-        imagej=True,
-        resolution=(1 / pixelarea, 1 / pixelarea),
-        metadata={"spacing": spacing_between_slices, "unit": "mm", "axes": "ZYX"},
-    )
-    imwrite(
-        os.path.join(output_dir, "mascaras_pred.tif"),
-        filtered_masks,
-        imagej=True,
-        resolution=(1 / pixelarea, 1 / pixelarea),
-        metadata={"spacing": spacing_between_slices, "unit": "mm", "axes": "ZYX"},
-    )
+    # 12) Guardar TIFFs (try/except por posibles locks en Windows)
+    try:
+        imwrite(
+            os.path.join(output_dir, "ct_original.tif"),
+            arr_original,
+            imagej=True,
+            resolution=(1 / pixelarea, 1 / pixelarea),
+            metadata={"spacing": spacing_between_slices, "unit": "mm", "axes": "ZYX"},
+        )
+    except Exception as e:
+        logger.info(f"[TIFF] No se pudo escribir ct_original.tif: {e}")
 
-    # 13) Índices válidos -> archivo para el frontend
+    try:
+        imwrite(
+            os.path.join(output_dir, "mascaras_pred.tif"),
+            filtered_masks,
+            imagej=True,
+            resolution=(1 / pixelarea, 1 / pixelarea),
+            metadata={"spacing": spacing_between_slices, "unit": "mm", "axes": "ZYX"},
+        )
+    except Exception as e:
+        logger.info(f"[TIFF] No se pudo escribir mascaras_pred.tif: {e}")
+
+    # 13) Índices válidos -> archivo para debug/frontend
     valid_index_map = {i: os.path.basename(path) for i, path in enumerate(valid_paths)}
-    with open(os.path.join(output_dir, "valid_indices.json"), "w") as f:
-        json.dump(valid_index_map, f, indent=2)
+    try:
+        with open(os.path.join(output_dir, "valid_indices.json"), "w", encoding="utf-8") as f:
+            json.dump(valid_index_map, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        logger.info(f"[IO] No se pudo escribir valid_indices.json: {e}")
 
     if debug:
         logger.info(f"[OK] Salidas en: {output_dir}")
+
+    # === DEBUG: confirmar escrituras ===
+    try:
+        out_files = os.listdir(output_dir)
+        mask_count = len([f for f in out_files if f.startswith('mask_') and f.endswith('.json')])
+        print(f"[PY] output_dir: {output_dir}")
+        print(f"[PY] mask json count: {mask_count}")
+        print(f"[PY] volumenes.json exists: {os.path.exists(os.path.join(output_dir, 'volumenes.json'))}")
+        if mask_count > 0:
+            print("[PY] sample masks:", [f for f in out_files if f.startswith('mask_')][:5])
+    except Exception as e:
+        print("[PY] error listando output_dir:", e)
 
     return {
         "output_dir": output_dir,
@@ -509,3 +589,47 @@ def dicom_segmentation(path_original, size, n_clases, enable_dbscan_filter=True,
         "volumes_ml": volumen_data,
         "valid_indices": valid_index_map,
     }
+
+
+# =========================
+#  CLI: para llamarlo desde Node
+# =========================
+if __name__ == "__main__":
+    parser = ArgumentParser(description="Segmentación DICOM")
+    parser.add_argument("path_original", type=str, help="Carpeta con DICOMs (temporal)")
+    parser.add_argument("--size", type=str, default="256,256", help="Tamaño WxH para el modelo, p.ej. 256,256")
+    parser.add_argument("--classes", type=int, default=3, help="Número de clases en el modelo")
+    parser.add_argument("--no-dbscan", action="store_true", help="Desactivar filtrado DBSCAN")
+    parser.add_argument("--debug", action="store_true", help="Logs de depuración")
+    args = parser.parse_args()
+
+    try:
+        w, h = [int(x) for x in args.size.split(",")]
+    except Exception:
+        w, h = 256, 256
+
+    path_original = args.path_original
+    debug = bool(args.debug)
+
+    logger.info(f"[PY] __file__ = {os.path.abspath(__file__)}")
+    logger.info(f"[PY] cwd      = {os.getcwd()}")
+
+    if not os.path.isdir(path_original):
+        logger.error("[FATAL] path_original no es un directorio: %s", path_original)
+        sys.exit(2)
+
+    try:
+        result = dicom_segmentation(
+            path_original=path_original,
+            size=(w, h),
+            n_clases=args.classes,
+            enable_dbscan_filter=not args.no_dbscan,
+            debug=debug
+        )
+        # Imprime un pequeño resumen JSON por stdout (opcional)
+        print(json.dumps({"ok": True, "output_dir": result["output_dir"], "n_slices": result["n_slices"]}))
+        sys.exit(0)
+    except Exception as e:
+        logger.exception("[FATAL] Error en dicom_segmentation: %s", e)
+        print(json.dumps({"ok": False, "error": str(e)}))
+        sys.exit(1)

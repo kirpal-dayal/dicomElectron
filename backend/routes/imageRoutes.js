@@ -1,171 +1,281 @@
 /**
- * // backend/routes/imageRoutes.js
- * 
- * RUTAS BACKEND – API para manejo de imágenes DICOM en el sistema de visualización médica.
-
- * - Recibe y procesa archivos ZIP subidos con imágenes DICOM desde el frontend.
- * - Extrae y almacena los archivos en una estructura de carpetas por estudio (basado en NSS y fecha).
- * - Registra los estudios en la base de datos MySQL.
- * - Expone endpoints REST para:
- *    · Listar los archivos DICOM de un estudio (`/dicom-list/:folder`)
- *    · Servir los archivos DICOM individuales al frontend para su visualización (`/dicom/:folder/:filename`)
-
- * - Usado por el frontend React para cargar listas de imágenes y acceder a los archivos reales (integración directa con Cornerstone), -> studyview
- * - La subida de ZIP espera un form-data con los campos `nss`, `fecha` y `zipFile` -> doctorview
- * - Se integra con la base de datos a través del módulo db/connectionDb.js y la tabla `estudio`.
-
- * - El frontend debe enviar los archivos DICOM comprimidos (ZIP), tener cuidado con el formato de la fecha y el NSS
- * - Los archivos se extraen sin procesar para compatibilidad con visores médicos JS.
- * - Los endpoints asumen estructura consistente en la carpeta de imágenes.
-
- * - No se hace validación exhaustiva del contenido del ZIP (se asume origen confiable).
- * - Recomendable agregar autenticación/autorización para entornos productivos.
- * Cada imagen DICOM se guarda como LONGBLOB en la tabla imagen
-
-El campo num_tomo se asigna en orden desde 1
-
-El endpoint /dicom/:folder/:filename se conserva intacto para que siga sirviendo desde disco (para Cornerstone)
-
-Se usa INSERT IGNORE para evitar error si ya existe un registro de estudio con la misma fecha y NSS
+ * backend/routes/imageRoutes.js
+ *
+ * Flujo:
+ * 1) POST /api/image/upload-zip
+ *    - Recibe ZIP (express-fileupload)
+ *    - Upsert en estudio
+ *    - Inserta DICOMs a BD (tabla imagen) con num_tomo consecutivo
+ *    - Materializa imágenes de BD a directorio temporal
+ *    - Ejecuta Python (segmentation.py)
+ *    - Volca máscaras a BD y actualiza volumen (helpers de segmentRoutes)
+ *    - Limpia el tmp al final (siempre)
+ *
+ * 2) GET /api/image/dicom-list/:folder  -> lista nombres "IM_XXXX.dcm" desde BD
+ * 3) GET /api/image/dicom/:folder/:filename  -> devuelve el LONGBLOB del DICOM
  */
+
 const express  = require('express');
-const fs       = require('fs');
+const fs       = require('fs/promises');
+const fscore   = require('fs');
 const path     = require('path');
+const os       = require('os');
 const unzipper = require('unzipper');
+const { exec } = require('child_process');
 const db       = require('../connectionDb');
-const { nameDirectoryDicom } = require('../configConst');
 
-const { exec } = require('child_process'); // Para ejecutar scripts Python 
-const router = express.Router();
-const { guardarMascarasEnBD } = require('./segmentRoutes'); // Importa la función para guardar máscaras
-/**
- * Utilidad: Recursivamente encuentra archivos DICOM válidos (.dcm o sin extensión)
- */
-function findDicomFiles(dir, base = '') {
-  let dicoms = [];
-  const files = fs.readdirSync(dir, { withFileTypes: true });
-  for (let f of files) {
-    const relPath = path.join(base, f.name);
-    const fullPath = path.join(dir, f.name);
-    if (f.isDirectory()) {
-      dicoms = dicoms.concat(findDicomFiles(fullPath, relPath));
-    } else if (/\.dcm$/i.test(f.name) || !/\./.test(f.name)) {
-      dicoms.push(relPath.replace(/\\/g, '/'));
-    }
-  }
-  return dicoms;
+const router   = express.Router();
+
+// Helpers exportados desde segmentRoutes
+const { guardarMascarasEnBDFromDir, updateEstudioVolumenFromDir } = require('./segmentRoutes');
+
+// ========= Utilidades BD =========
+
+function upsertEstudio(nss, fecha, descripcion = null) {
+  return new Promise((resolve, reject) => {
+    db.query(
+      'INSERT IGNORE INTO estudio (nss_expediente, fecha, descripcion) VALUES (?, ?, ?)',
+      [nss, fecha, descripcion],
+      (err) => err ? reject(err) : resolve()
+    );
+  });
 }
 
-/**
- * POST /upload-zip
- * Recibe un ZIP con archivos DICOM y:
- *  1. Lo guarda y extrae en carpeta `DICOM/nss_fecha/`
- *  2. Registra el estudio en la tabla `estudio`
- *  3. Guarda cada imagen en la tabla `imagen` con LONGBLOB
- */
+function insertImagen(nss, fecha, num_tomo, buffer) {
+  return new Promise((resolve, reject) => {
+    db.query(
+      'INSERT INTO imagen (nss_exp, fecha_estudio, num_tomo, imagen) VALUES (?, ?, ?, ?)',
+      [nss, fecha, num_tomo, buffer],
+      (err) => err ? reject(err) : resolve()
+    );
+  });
+}
+
+function fetchImagenes(nss, fecha) {
+  return new Promise((resolve, reject) => {
+    db.query(
+      'SELECT num_tomo, imagen FROM imagen WHERE nss_exp=? AND fecha_estudio=? ORDER BY num_tomo ASC',
+      [nss, fecha],
+      (err, rows) => err ? reject(err) : resolve(rows || []))
+  });
+}
+
+// ========= Utilidades /tmp =========
+
+async function mkTmp(prefix = 'study-') {
+  const base = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
+  return base;
+}
+
+async function materializeStudyToTmp(nss, fecha) {
+  const safeNss = String(nss).replace(/\W+/g, '_');
+  const tmpDir = await mkTmp(`study-${safeNss}-`);
+  const rows = await fetchImagenes(nss, fecha);
+  if (!rows.length) throw new Error('Estudio sin imágenes en BD');
+
+  let written = 0;
+  for (const r of rows) {
+    const fname = `IM_${String(r.num_tomo).padStart(4, '0')}.dcm`;
+    await fs.writeFile(path.join(tmpDir, fname), r.imagen);
+    written++;
+  }
+  console.log('[MATERIALIZE] Escribió %d DICOMs en %s', written, tmpDir);
+  return tmpDir;
+}
+
+// ========= Helpers locales =========
+
+function parseFolder(folder) {
+  const m = folder.match(/^([A-Za-z0-9_-]+)_((\d{4}-\d{2}-\d{2})_(\d{2})_(\d{2})_(\d{2}))$/);
+  if (!m) return null;
+  const nss = m[1];
+  const fechaSQL = `${m[3]} ${m[4]}:${m[5]}:${m[6]}`;
+  return { nss, fechaSQL };
+}
+
+function isDicomCandidate(zipPath) {
+  // Acepta *.dcm o archivos sin extensión (muchos PACS exportan así)
+  return /\.dcm$/i.test(zipPath) || !/\.[^/]+$/.test(zipPath);
+}
+
+async function safeListDir(dir, label) {
+  try {
+    const list = await fs.readdir(dir);
+    console.log('[LIST] %s (%s) → %d items', label, dir, list.length);
+    console.log('[LIST] %s sample:', label, list.slice(0, 50));
+    return list;
+  } catch (e) {
+    console.warn('[LIST] No se pudo listar %s (%s): %s', label, dir, e.message);
+    return [];
+  }
+}
+
+// ========= Endpoints =========
+
+// POST /api/image/upload-zip
 router.post('/upload-zip', async (req, res) => {
   try {
-    if (!req.files || !req.files.zipFile) return res.status(400).send('No ZIP');
+    if (!req.files || !req.files.zipFile) {
+      return res.status(400).send('No se recibió el archivo ZIP');
+    }
+    const zipFile = req.files.zipFile; // express-fileupload
+    let { nss, fecha, descripcion } = req.body;
+    if (!nss || !fecha) return res.status(400).send('Faltan parámetros: nss, fecha');
 
-    const zipFile = req.files.zipFile;
-    let { nss, fecha } = req.body;
-    if (!nss || !fecha) return res.status(400).send('Faltan parámetros');
-
-    // Formato SQL de fecha y nombre seguro para carpeta
+    // Normaliza fecha a "YYYY-MM-DD HH:MM:SS"
     fecha = fecha.replace('T', ' ').split('.')[0];
-    const safeFecha = fecha.replace(/[: ]/g, '_');
-    const studyDir = path.join(__dirname, '..', nameDirectoryDicom, `${nss}_${safeFecha}`);
-    fs.mkdirSync(studyDir, { recursive: true });
 
-    // Guardar y extraer ZIP
-    const zipPath = path.join(studyDir, zipFile.name);
-    await zipFile.mv(zipPath);
-    await new Promise(resolve =>
-      fs.createReadStream(zipPath)
-        .pipe(unzipper.Extract({ path: studyDir }))
-        .on('close', resolve)
-    );
+    console.log('[UPLOAD] NSS: %s Fecha: %s ZIP bytes: %s', nss, fecha, zipFile.data?.length ?? 0);
 
-    // Insertar estudio
-    await new Promise((resolve, reject) => {
-      db.query(
-        'INSERT IGNORE INTO estudio (nss_expediente, fecha) VALUES (?, ?)',
-        [nss, fecha],
-        (err) => err ? reject(err) : resolve()
-      );
+    await upsertEstudio(nss, fecha, descripcion || null);
+
+    // Abrir ZIP en memoria
+    const directory = await unzipper.Open.buffer(zipFile.data);
+    let files = directory.files.filter(f => f.type === 'File');
+    // Orden estable (por nombre de entrada en el ZIP)
+    files.sort((a, b) => a.path.localeCompare(b.path, 'en'));
+
+    console.log('[ZIP] Entradas en ZIP: %d', files.length);
+    console.log('[ZIP] Muestra:', files.slice(0, 10).map(f => f.path));
+
+    // Insertar DICOMs en BD
+    let num_tomo = 1, inserted = 0, skipped = 0;
+    for (const entry of files) {
+      if (!isDicomCandidate(entry.path)) { skipped++; continue; }
+      try {
+        const buf = await entry.buffer();
+        await insertImagen(nss, fecha, num_tomo, buf);
+        inserted++; num_tomo++;
+      } catch (e) {
+        console.error('[UPLOAD] Error insertando %s: %s', entry.path, e.message);
+      }
+    }
+    console.log('[UPLOAD] DICOMs insertados en BD: %d | ignorados (no dicom): %d', inserted, skipped);
+
+    // Lanza segmentación
+    const tmpDir = await materializeStudyToTmp(nss, fecha);
+    console.log('[SEG] Materializado en %s', tmpDir);
+
+    // Lista del tmp antes de segmentar
+    await safeListDir(tmpDir, 'tmpDir pre-segment');
+
+    const segmentationScript = path.join(__dirname, '../segmentation/segmentation.py');
+    const cmd = `python -u "${segmentationScript}" "${tmpDir}" --debug`;
+    console.log('[SEG] Ejecutando:', cmd);
+
+    const child = exec(cmd, { env: { ...process.env } });
+
+    child.stdout.on('data', d => process.stdout.write(String(d)));
+    child.stderr.on('data', d => process.stderr.write(String(d)));
+
+    child.on('error', (err) => {
+      console.error('[SEG] Error al lanzar proceso Python:', err.message);
     });
 
-    // Leer y almacenar DICOMs en la BD
-    const dicomFiles = findDicomFiles(studyDir);
-    for (let i = 0; i < dicomFiles.length; i++) {
-      const relativePath = dicomFiles[i];
-      const fullPath = path.join(studyDir, relativePath);
-      const buffer = fs.readFileSync(fullPath);
-      await new Promise((resolve, reject) => {
-        db.query(
-          'INSERT INTO imagen (nss_exp, fecha_estudio, num_tomo, imagen) VALUES (?, ?, ?, ?)',
-          [nss, fecha, i + 1, buffer],
-          (err) => err ? reject(err) : resolve()
-        );
-      });
-    }
+    child.on('close', async (code) => {
+      try {
+        console.log('[SEG] exit code =', code);
 
-//   EJECUTAR SEGMENTACIÓN AUTOMÁTICAMENTE (DENTRO DEL TRY)
-const segmentationScript = path.join(__dirname, '../segmentation/main.py');
-const command = `python "${segmentationScript}" "${studyDir}"`;
+        // DEBUG: lista dir temporal + subcarpeta de segmentación
+        const listTop = await safeListDir(tmpDir, 'tmpDir post-segment');
+        const segSub = path.join(tmpDir, 'segmentaciones_por_dicom');
+        const segExists = fscore.existsSync(segSub);
+        console.log('[SEG] segSub exists =', segExists, '→', segSub);
+        let listSeg = [];
+        if (segExists) listSeg = await safeListDir(segSub, 'segmentaciones_por_dicom');
 
-exec(command, async (error, stdout, stderr) => {
-  if (error) {
-    console.error(' Error al ejecutar la segmentación:', error);
-    console.error('stderr:', stderr);
-  } else {
-    console.log('Segmentación completada automáticamente.');
-    console.log('stdout:', stdout);
+        // Métricas de salida
+        const masksAuto = listSeg.filter(f => /^mask_\d+\.json$/i.test(f)).length;
+        const masksMan  = listSeg.filter(f => /^mask_\d+_simplified\.json$/i.test(f)).length;
+        const hasVol    = listSeg.includes('volumenes.json') || listTop.includes('volumenes.json');
 
-    // EXTRAER NSS Y FECHA
-    try {
-      await guardarMascarasEnBD(`${nss}_${safeFecha}`, nss, fecha);
-    } catch (err) {
-      console.error(' Error al guardar máscaras en BD:', err);
-    }
-  }
-});
+        console.log('[SEG] Conteo → auto:%d manual_simplified:%d volumenes:%s',
+          masksAuto, masksMan, hasVol ? 'sí' : 'no');
 
+        if (code !== 0) {
+          console.error('[SEG] Segmentación terminó con código %d', code);
+        } else {
+          // IMPORTANTE: insertar en BD **antes** de borrar tmpDir
+          console.log('[POST-SEG] Volcando máscaras a BD… nss=%s fecha=%s', nss, fecha);
+          await guardarMascarasEnBDFromDir(tmpDir, nss, fecha);
 
-    //  Enviar respuesta al cliente
+          console.log('[POST-SEG] Actualizando volumen_automatico en estudio…');
+          await updateEstudioVolumenFromDir(tmpDir, nss, fecha);
+
+          console.log('[POST-SEG] Finalizado volcado a BD.');
+        }
+      } catch (e) {
+        console.error('Error post-segmentación (guardado de máscaras/volumen):', e);
+      } finally {
+        // Borrar tmpDir SOLO al final
+        try {
+          await fs.rm(tmpDir, { recursive: true, force: true });
+          console.log('[SEG] tmpDir eliminado:', tmpDir);
+        } catch (err) {
+          console.warn('[SEG] no se pudo eliminar tmpDir:', err.message);
+        }
+      }
+    });
+
+    // Responder YA, sin bloquear al cliente
     res.json({
       success: true,
-      message: `Subida exitosa. ${dicomFiles.length} imágenes registradas y segmentación lanzada.`,
+      message: `ZIP recibido. Imágenes guardadas en BD. Segmentación lanzada.`,
+      total_insertadas: inserted,
+      ignoradas: skipped
     });
+
   } catch (err) {
-    console.error('Error en subida ZIP:', err);
-    res.status(500).send('Error al procesar ZIP');
+    console.error('Error en /upload-zip:', err);
+    res.status(500).send('Error al procesar el ZIP');
   }
 });
 
-/**
- * GET /dicom-list/:folder
- * Devuelve lista de archivos extraídos para un estudio
- */
+// GET /api/image/dicom-list/:folder  -> nombres virtuales tipo IM_0001.dcm (desde BD)
 router.get('/dicom-list/:folder', (req, res) => {
-  const folder = req.params.folder;
-  const folderPath = path.join(__dirname, '..', nameDirectoryDicom, folder);
-  if (!fs.existsSync(folderPath)) {
-    return res.status(404).json({ error: 'Carpeta no encontrada' });
-  }
-  const files = findDicomFiles(folderPath);
-  res.json(files);
+  const parsed = parseFolder(req.params.folder);
+  if (!parsed) return res.status(400).json({ error: 'folder inválido' });
+
+  db.query(
+    'SELECT num_tomo FROM imagen WHERE nss_exp=? AND fecha_estudio=? ORDER BY num_tomo ASC',
+    [parsed.nss, parsed.fechaSQL],
+    (err, rows) => {
+      if (err) {
+        console.error('[DICOM-LIST] DB error:', err.message);
+        return res.status(500).json({ error: 'DB error' });
+      }
+      const files = (rows || []).map(r => `IM_${String(r.num_tomo).padStart(4,'0')}.dcm`);
+      console.log('[DICOM-LIST] count:', files.length);
+      res.json(files);
+    }
+  );
 });
 
-/**
- * GET /dicom/:folder/:filename
- * Sirve un archivo DICOM específico desde disco
- */
+// GET /api/image/dicom/:folder/:filename  -> sirve LONGBLOB del num_tomo
 router.get('/dicom/:folder/:filename(*)', (req, res) => {
-  const { folder, filename } = req.params;
-  const filePath = path.join(__dirname, '..', nameDirectoryDicom, folder, filename);
-  if (!fs.existsSync(filePath)) return res.status(404).send('No existe');
-  res.sendFile(filePath);
+  const parsed = parseFolder(req.params.folder);
+  if (!parsed) return res.status(400).send('folder inválido');
+
+  const fn = req.params.filename;
+  const m = fn.match(/IM_(\d+)\.dcm$/i);
+  if (!m) return res.status(400).send('filename inválido');
+  const num_tomo = Number(m[1]);
+
+  db.query(
+    'SELECT imagen FROM imagen WHERE nss_exp=? AND fecha_estudio=? AND num_tomo=? LIMIT 1',
+    [parsed.nss, parsed.fechaSQL, num_tomo],
+    (err, rows) => {
+      if (err) {
+        console.error('[DICOM] DB error:', err.message);
+        return res.status(500).send('DB error');
+      }
+      if (!rows || rows.length === 0) return res.status(404).send('No encontrado');
+
+      res.setHeader('Content-Type', 'application/dicom');
+      res.setHeader('Content-Disposition', `inline; filename="${fn}"`);
+      res.send(rows[0].imagen);
+    }
+  );
 });
 
 module.exports = router;

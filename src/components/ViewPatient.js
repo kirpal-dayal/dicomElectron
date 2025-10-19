@@ -102,6 +102,9 @@ export default function ViewPatient() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  const [status, setStatus] = useState(null);
+
+
   const [showDescripcionModal, setShowDescripcionModal] = useState(false);
   const [descripcionActual, setDescripcionActual] = useState("");
 
@@ -109,11 +112,41 @@ export default function ViewPatient() {
   const [show3DForFolder, setShow3DForFolder] = useState(null);
 
   // Bloquear scroll cuando hay overlay
-  useEffect(() => {
-    const prev = document.body.style.overflow;
-    if (show3DForFolder) document.body.style.overflow = "hidden";
-    return () => { document.body.style.overflow = prev; };
-  }, [show3DForFolder]);
+  // useEffect(() => {
+  //   const prev = document.body.style.overflow;
+  //   if (show3DForFolder) document.body.style.overflow = "hidden";
+  //   return () => { document.body.style.overflow = prev; };
+  // }, [show3DForFolder]);
+
+useEffect(() => {
+  if (!show3DForFolder) return; // solo cuando hay overlay 3D abierto
+  let canceled = false;
+  let tries = 0;
+
+  async function poll() {
+    try {
+      const { data } = await api.get(`/api/segment/status/${show3DForFolder}`);
+      if (canceled) return;
+      setStatus(data);
+      if (data.ready) return; // listo: cortamos el polling
+      tries++;
+      setTimeout(poll, Math.min(3000, 1000 + tries * 200));
+    } catch (e) {
+      if (!canceled) setTimeout(poll, 3000);
+    }
+  }
+
+  setStatus(null);
+  poll();
+  return () => { canceled = true; };
+}, [show3DForFolder]);
+
+useEffect(() => {
+  if (status?.ready) {
+    // cuando termina el volcado a BD, refrescamos la lista
+    fetchRecord();
+  }
+}, [status?.ready]);
 
   // Cargar expediente
   const fetchRecord = async () => {
@@ -165,6 +198,8 @@ export default function ViewPatient() {
       setLoading(false);
     }
   };
+
+  // al montar el StudyView
 
   useEffect(() => {
     if (!nss) {
@@ -296,6 +331,19 @@ export default function ViewPatient() {
                   >
                     Descripción ✏️
                   </button>
+{show3DForFolder === s.folder && status && !status.ready && (
+  <div style={{padding:'1rem', textAlign:'center', opacity:0.8}}>
+    {status.estado === 'segmenting' && 'Segmentando…'}
+    {status.estado === 'dumping' && 'Guardando resultados…'}
+    {!status.estado && 'Procesando…'}
+    {typeof status.progreso === 'number' && (
+      <div style={{width:280, height:8, margin:'8px auto 0', background:'#eee', borderRadius:6, overflow:'hidden'}}>
+        <div style={{width:`${Math.max(0,Math.min(100,status.progreso))}%`, height:'100%'}} />
+      </div>
+    )}
+  </div>
+)}
+
 
                   {/* Visor 2D */}
                   <button
@@ -314,8 +362,11 @@ export default function ViewPatient() {
                   {/* Abrir overlay 3D */}
                   <button
                     className="btn"
-                    onClick={() => setShow3DForFolder(prev => prev === s.folder ? null : s.folder)}
-                    style={{ marginTop: 8 }}
+                      onClick={() => {
+                        setShow3DForFolder(prev => prev === s.folder ? null : s.folder);
+                        setStatus(null); // limpiar barra/estado anterior al cambiar de estudio
+                      }}                    
+                    style={{ marginTop: 8 }}                    
                   >
                     {show3DForFolder === s.folder ? "Ocultar 3D" : "Visualizar 3D 🏗️"}
                   </button>

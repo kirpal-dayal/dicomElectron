@@ -206,9 +206,6 @@ export default function Home() {
                 {loading ? 'Verificando...' : 'Iniciar Sesión'}
               </button>
             </form>
-            <button className="btn" onClick={handleShowLungRender}>
-              Comparar volúmenes VTK
-            </button>
           </div>
         </>
       )}
