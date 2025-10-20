@@ -3,6 +3,10 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../api'; // ruta relativa desde /src/components
 
+import logoColor from '../assets/images/logo_graf_color.svg'; //color
+import logoBlanco from '../assets/images/logo_graf_blanco.svg'; //blanco
+import '../styles/variables.css';
+
 import { loadMaskFiles } from '../utils/loadMaskfiles';
 import VTKVolumeViewer from './VTKVolumeViewer';
 
@@ -169,6 +173,12 @@ export default function Home() {
 
           <div className="home-container">
             <form className="login-card" onSubmit={handleSubmit}>
+              {/* logo blanco fondo azul */}
+              {/* <div style={{ display: 'flex', backgroundColor: 'var(--color-main-blue)', height: '150px', width: '100%' }}>
+                <img src={logoBlanco} alt="Logo" style={{ display: 'block', margin: '0 auto'}} />
+              </div> */}
+              {/* logo con colores */}
+              <img src={logoColor} alt="Logo" style={{ display: 'block', margin: '0 auto' }} />
               <h2 className="title">Iniciar</h2>
 
               <div className="form-group">
