@@ -4,6 +4,9 @@ import { useNavigate } from 'react-router-dom';
 import NavBar from './NavBar';
 import axios from 'axios'; // IMPORTANTE: Axios para conectar al backend
 
+import logoBlanco from '../assets/images/logo_graf_blanco.svg'; //blanco
+import '../styles/styles.css';
+
 function AdminView() {
   const navigate = useNavigate();
   const stored = JSON.parse(localStorage.getItem('user') || '{}');
@@ -118,7 +121,7 @@ function AdminView() {
         onCreate={() => setShowFormNewDoc(true)}
       />*/}
       <header className="navbar">
-        <h1>{username}</h1>
+        <img src={logoBlanco} alt="Logo" style={{ display: 'block', margin: '10px', height: '90%'}} />
         <div className="nav-buttons">
           <button className="btn" onClick={() => setShowFormNewDoc(true)}>
             Crear Doctor
