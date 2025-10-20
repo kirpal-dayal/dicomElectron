@@ -28,7 +28,7 @@ export default function Home() {
     console.log("Se recuperaron los volumenes")
     setIsLungRenderVisible(true);
     console.log("Se concluye con exito handleShowLungRender")
-    
+
   };
   const handleBackOrigin = () => {
     setIsLungRenderVisible(false);
@@ -77,12 +77,12 @@ export default function Home() {
       else setServerError('Rol desconocido');
     } catch (err) {
       // setServerError(err.response?.data || 'Error desconocido al iniciar sesión');
-        const msg =
-       err?.response?.data?.error ||
-       err?.response?.data?.message ||
-       err?.message ||
-       'Error desconocido al iniciar sesión';
-     setServerError(msg);
+      const msg =
+        err?.response?.data?.error ||
+        err?.response?.data?.message ||
+        err?.message ||
+        'Error desconocido al iniciar sesión';
+      setServerError(msg);
     } finally {
       setLoading(false);
     }
