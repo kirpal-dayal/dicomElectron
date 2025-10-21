@@ -4,5 +4,5 @@
     align-items: center;
     background: var(--color-darkest-blue);
     padding: 1rem 2rem;
-    height: 80px;
+    height: var(--height-navbar);
 }
