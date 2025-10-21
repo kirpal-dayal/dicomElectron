@@ -238,7 +238,7 @@ useEffect(() => {
 
       {/* Navbar */}
       <header className="navbar">
-        <h1>{username}</h1>
+        <img src={logoBlanco} alt="Logo" style={{ display: 'block', margin: '10px', height: '90%'}} />
         <div className="nav-buttons">
           <button className="btn" onClick={() => setShowForm(true)}>
             Añadir Paciente
