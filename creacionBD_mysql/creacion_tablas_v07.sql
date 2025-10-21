@@ -6,19 +6,15 @@ SET @OLD_FOREIGN_KEY_CHECKS=@@FOREIGN_KEY_CHECKS, FOREIGN_KEY_CHECKS=0;
 SET @OLD_SQL_MODE=@@SQL_MODE, SQL_MODE='ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION';
 
 -- -----------------------------------------------------
--- Schema fibrosis_v06
+-- Schema fibrosis_v07
 -- -----------------------------------------------------
+CREATE SCHEMA IF NOT EXISTS `fibrosis_v07` DEFAULT CHARACTER SET utf8 ;
+USE `fibrosis_v07` ;
 
 -- -----------------------------------------------------
--- Schema fibrosis_v06
+-- Table `fibrosis_v07`.`admin`
 -- -----------------------------------------------------
-CREATE SCHEMA IF NOT EXISTS `fibrosis_v06` DEFAULT CHARACTER SET utf8 ;
-USE `fibrosis_v06` ;
-
--- -----------------------------------------------------
--- Table `fibrosis_v06`.`admin`
--- -----------------------------------------------------
-CREATE TABLE IF NOT EXISTS `fibrosis_v06`.`admin` (
+CREATE TABLE IF NOT EXISTS `fibrosis_v07`.`admin` (
   `id_admin` VARCHAR(10) NOT NULL,
   `activo` TINYINT NOT NULL DEFAULT 1,
   `nombre_admin` VARCHAR(45) NULL,
@@ -29,9 +25,9 @@ ENGINE = InnoDB;
 
 
 -- -----------------------------------------------------
--- Table `fibrosis_v06`.`doctor`
+-- Table `fibrosis_v07`.`doctor`
 -- -----------------------------------------------------
-CREATE TABLE IF NOT EXISTS `fibrosis_v06`.`doctor` (
+CREATE TABLE IF NOT EXISTS `fibrosis_v07`.`doctor` (
   `id` VARCHAR(10) NOT NULL,
   `activo` TINYINT NOT NULL DEFAULT 1,
   `nombre_doc` VARCHAR(45) NULL,
@@ -42,7 +38,7 @@ CREATE TABLE IF NOT EXISTS `fibrosis_v06`.`doctor` (
   INDEX `id_adminCreador_idx` (`id_adminCreador` ASC) VISIBLE,
   CONSTRAINT `fkDoc_id_admin`
     FOREIGN KEY (`id_adminCreador`)
-    REFERENCES `fibrosis_v06`.`admin` (`id_admin`)
+    REFERENCES `fibrosis_v07`.`admin` (`id_admin`)
     ON DELETE NO ACTION
     ON UPDATE NO ACTION)
 ENGINE = InnoDB
@@ -50,9 +46,9 @@ KEY_BLOCK_SIZE = 1;
 
 
 -- -----------------------------------------------------
--- Table `fibrosis_v06`.`expediente`
+-- Table `fibrosis_v07`.`expediente`
 -- -----------------------------------------------------
-CREATE TABLE IF NOT EXISTS `fibrosis_v06`.`expediente` (
+CREATE TABLE IF NOT EXISTS `fibrosis_v07`.`expediente` (
   `nss` VARCHAR(15) NOT NULL,
   `sexo` TINYINT NULL,
   `fecha_creacion` TIMESTAMP NOT NULL,
@@ -62,19 +58,20 @@ CREATE TABLE IF NOT EXISTS `fibrosis_v06`.`expediente` (
   INDEX `id_docCreador_idx` (`id_docCreador` ASC) VISIBLE,
   CONSTRAINT `fkExp_id_doc`
     FOREIGN KEY (`id_docCreador`)
-    REFERENCES `fibrosis_v06`.`doctor` (`id`)
+    REFERENCES `fibrosis_v07`.`doctor` (`id`)
     ON DELETE NO ACTION
     ON UPDATE NO ACTION)
 ENGINE = InnoDB;
 
 
 -- -----------------------------------------------------
--- Table `fibrosis_v06`.`estudio`
+-- Table `fibrosis_v07`.`estudio`
 -- -----------------------------------------------------
-CREATE TABLE IF NOT EXISTS `fibrosis_v06`.`estudio` (
+CREATE TABLE IF NOT EXISTS `fibrosis_v07`.`estudio` (
   `nss_expediente`         VARCHAR(15)   NOT NULL,
   `fecha`                  DATETIME      NOT NULL,          -- "YYYY-MM-DD HH:MM:SS"
   `descripcion`            TEXT          NULL,
+  `diagnostico`            TEXT          NULL,      --  NUEVO: botón Diagnóstico
 
   -- Volúmenes automáticos (modelo)
   `volumen_automatico`             DECIMAL(10,2) NULL,     -- total (ml)
@@ -85,30 +82,23 @@ CREATE TABLE IF NOT EXISTS `fibrosis_v06`.`estudio` (
   `volumen_manual`                 DECIMAL(10,2) NULL,     -- total (ml)
   `volumen_pulmon_manual`          DECIMAL(10,2) NULL,     -- pulmón (ml)
   `volumen_fibrosis_manual`        DECIMAL(10,2) NULL,     -- fibrosis (ml)
-  `volumen_json_manual`            JSON          NULL,
-
-  -- Timestamps opcionales
-  `created_at`             TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `updated_at`             TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 
   -- Claves / índices
-  PRIMARY KEY (`nss_expediente`, `fecha`),
-  INDEX `idx_estudio_fecha` (`fecha`),
+  UNIQUE INDEX `fecha_UNIQUE` (`fecha` ASC) VISIBLE,
+  PRIMARY KEY (`fecha`, `nss_expediente`),
+  INDEX `nss_expediente_idx` (`nss_expediente` ASC) VISIBLE,
   CONSTRAINT `fkEst_nss_expediente`
     FOREIGN KEY (`nss_expediente`)
-    REFERENCES `fibrosis_v06`.`expediente` (`nss`)
+    REFERENCES `fibrosis_v07`.`expediente` (`nss`)
     ON DELETE NO ACTION
     ON UPDATE NO ACTION
 )
-ENGINE=InnoDB
-DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-
+ENGINE=InnoDB;
 
 -- -----------------------------------------------------
--- Table `fibrosis_v06`.`imagen`
+-- Table `fibrosis_v07`.`imagen`
 -- -----------------------------------------------------
-CREATE TABLE IF NOT EXISTS `fibrosis_v06`.`imagen` (
+CREATE TABLE IF NOT EXISTS `fibrosis_v07`.`imagen` (
   `nss_exp` VARCHAR(15) NOT NULL,
   `fecha_estudio` TIMESTAMP NOT NULL,
   `num_tomo` INT NOT NULL,
@@ -117,21 +107,21 @@ CREATE TABLE IF NOT EXISTS `fibrosis_v06`.`imagen` (
   INDEX `fecha_estudio_idx` (`fecha_estudio` ASC) VISIBLE,
   CONSTRAINT `fkTom_nss_exp`
     FOREIGN KEY (`nss_exp`)
-    REFERENCES `fibrosis_v06`.`estudio` (`nss_expediente`)
+    REFERENCES `fibrosis_v07`.`estudio` (`nss_expediente`)
     ON DELETE NO ACTION
     ON UPDATE NO ACTION,
   CONSTRAINT `fkTom_fecha_estudio`
     FOREIGN KEY (`fecha_estudio`)
-    REFERENCES `fibrosis_v06`.`estudio` (`fecha`)
+    REFERENCES `fibrosis_v07`.`estudio` (`fecha`)
     ON DELETE NO ACTION
     ON UPDATE NO ACTION)
 ENGINE = InnoDB;
 
 
 -- -----------------------------------------------------
--- Table `fibrosis_v06`.`mascara`
+-- Table `fibrosis_v07`.`mascara`
 -- -----------------------------------------------------
-CREATE TABLE IF NOT EXISTS `fibrosis_v06`.`mascara` (
+CREATE TABLE IF NOT EXISTS `fibrosis_v07`.`mascara` (
   `nss_exp` VARCHAR(15) NOT NULL,
   `fecha_estudio` TIMESTAMP NOT NULL,
   `num_tomo` INT NOT NULL,
@@ -143,26 +133,26 @@ CREATE TABLE IF NOT EXISTS `fibrosis_v06`.`mascara` (
   INDEX `fkMas_fecha_estudio_idx` (`fecha_estudio` ASC) VISIBLE,
   CONSTRAINT `fkMas_nss_exp`
     FOREIGN KEY (`nss_exp`)
-    REFERENCES `fibrosis_v06`.`imagen` (`nss_exp`)
+    REFERENCES `fibrosis_v07`.`imagen` (`nss_exp`)
     ON DELETE NO ACTION
     ON UPDATE NO ACTION,
   CONSTRAINT `fkMas_fecha_estudio`
     FOREIGN KEY (`fecha_estudio`)
-    REFERENCES `fibrosis_v06`.`imagen` (`fecha_estudio`)
+    REFERENCES `fibrosis_v07`.`imagen` (`fecha_estudio`)
     ON DELETE NO ACTION
     ON UPDATE NO ACTION,
   CONSTRAINT `fkMas_num_tomo`
     FOREIGN KEY (`nss_exp`, `fecha_estudio`, `num_tomo`)
-    REFERENCES `fibrosis_v06`.`imagen` (`nss_exp`, `fecha_estudio`, `num_tomo`)
+    REFERENCES `fibrosis_v07`.`imagen` (`nss_exp`, `fecha_estudio`, `num_tomo`)
     ON DELETE NO ACTION
     ON UPDATE NO ACTION)
 ENGINE = InnoDB;
 
 
 -- -----------------------------------------------------
--- Table `fibrosis_v06`.`modifica_doc_estudio`
+-- Table `fibrosis_v07`.`modifica_doc_estudio`
 -- -----------------------------------------------------
-CREATE TABLE IF NOT EXISTS `fibrosis_v06`.`modifica_doc_estudio` (
+CREATE TABLE IF NOT EXISTS `fibrosis_v07`.`modifica_doc_estudio` (
   `id_doc` VARCHAR(10) NOT NULL,
   `nss_exp` VARCHAR(15) NOT NULL,
   `fecha_estudio` TIMESTAMP NOT NULL,
@@ -172,17 +162,17 @@ CREATE TABLE IF NOT EXISTS `fibrosis_v06`.`modifica_doc_estudio` (
   INDEX `fk_nss_exp_idx` (`nss_exp` ASC) VISIBLE,
   CONSTRAINT `fkMod_id_doc`
     FOREIGN KEY (`id_doc`)
-    REFERENCES `fibrosis_v06`.`doctor` (`id`)
+    REFERENCES `fibrosis_v07`.`doctor` (`id`)
     ON DELETE NO ACTION
     ON UPDATE NO ACTION,
   CONSTRAINT `fkMod_nss_exp`
     FOREIGN KEY (`nss_exp`)
-    REFERENCES `fibrosis_v06`.`estudio` (`nss_expediente`)
+    REFERENCES `fibrosis_v07`.`estudio` (`nss_expediente`)
     ON DELETE NO ACTION
     ON UPDATE NO ACTION,
   CONSTRAINT `fkMod_fecha_estudio`
     FOREIGN KEY (`fecha_estudio`)
-    REFERENCES `fibrosis_v06`.`estudio` (`fecha`)
+    REFERENCES `fibrosis_v07`.`estudio` (`fecha`)
     ON DELETE NO ACTION
     ON UPDATE NO ACTION)
 ENGINE = InnoDB;

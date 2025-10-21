@@ -1,7 +1,7 @@
 /**
  * backend/routes/segmentRoutes.js
  * Rutas para máscaras y volúmenes (lee preferentemente desde BD).
- * Incluye helpers robustos para volcar máscaras/volúmenes desde un dir temporal.
+ * Ajustado al esquema fibrosis_v06 actual (sin volumen_json_automatico).
  */
 const express = require('express');
 const router = express.Router();
@@ -11,7 +11,6 @@ const fsp = require('fs/promises');
 const db = require('../connectionDb'); // conexión MySQL
 
 // ========= Utils =========
-
 function parseFolder(folder) {
   // NSS_YYYY-MM-DD_HH_mm_ss
   const m = folder.match(/^([A-Za-z0-9_-]+)_((\d{4}-\d{2}-\d{2})_(\d{2})_(\d{2})_(\d{2}))$/);
@@ -54,7 +53,6 @@ function upsertMascara({ nss, fechaSQL, num_tomo, tipo, clase, payload }, cb) {
   });
 }
 
-// promesa con manejo de error real
 function upsertMascaraAsync(args) {
   return new Promise((resolve, reject) =>
     upsertMascara(args, (err) => (err ? reject(err) : resolve()))
@@ -94,107 +92,67 @@ function normalizeCoords(rowPulmon, rowFibrosis) {
   return out;
 }
 
-// ========= Helpers de esquema dinámico =========
+// ========= Endpoints públicos =========
 
-async function getColumns(table) {
-  const cols = new Set();
-  await new Promise((resolve, reject) => {
-    db.query(`SHOW COLUMNS FROM \`${table}\``, (err, rows) => {
-      if (err) return reject(err);
-      for (const r of rows || []) cols.add(r.Field);
-      resolve();
-    });
-  });
-  return cols;
-}
-
-// ========= Endpoints públicos (leyendo BD) =========
-
-// GET /api/segment/volumen/:folder
+// Volúmenes (prefiere manual; si no, automático; fallback a archivo)
 router.get('/volumen/:folder', async (req, res) => {
   const parsed = parseFolder(req.params.folder);
   if (!parsed) return res.status(400).json({ error: 'folder inválido' });
 
   try {
-    const cols = await getColumns('estudio');
-
-    // Construir SELECT dinámico según columnas disponibles
-    const wanted = [];
-    if (cols.has('volumen_automatico')) wanted.push('volumen_automatico');
-    if (cols.has('volumen_manual')) wanted.push('volumen_manual');
-    if (cols.has('volumen_pulmon_automatico')) wanted.push('volumen_pulmon_automatico');
-    if (cols.has('volumen_fibrosis_automatico')) wanted.push('volumen_fibrosis_automatico');
-    if (cols.has('volumen_json_automatico')) wanted.push('volumen_json_automatico');
-
-    if (!wanted.length) {
-      return res.status(404).json({ error: 'Volúmenes no disponibles en BD' });
-    }
-
-    const sql = `SELECT ${wanted.join(', ')} FROM estudio WHERE nss_expediente=? AND fecha=? LIMIT 1`;
+    const sql = `
+      SELECT volumen_automatico,
+             volumen_pulmon_automatico,
+             volumen_fibrosis_automatico,
+             volumen_manual,
+             volumen_pulmon_manual,
+             volumen_fibrosis_manual
+        FROM estudio
+       WHERE nss_expediente=? AND fecha=?
+       LIMIT 1`;
     db.query(sql, [parsed.nss, parsed.fechaSQL], async (err, rows) => {
       if (err) {
-        console.error('[volumen] DB error:', err.message);
+        console.error('[volumen] DB error:', err);
         return res.status(500).json({ error: 'DB error' });
       }
       if (!rows || !rows.length) {
-        return res.status(404).json({ error: 'Estudio no encontrado' });
-      }
-      const r = rows[0] || {};
-      let lung = cols.has('volumen_pulmon_automatico') ? r.volumen_pulmon_automatico : null;
-      let fibro = cols.has('volumen_fibrosis_automatico') ? r.volumen_fibrosis_automatico : null;
-      let total = r.volumen_automatico ?? r.volumen_manual ?? null;
-
-      // Si hay JSON de respaldo, úsalo para rellenar faltantes
-      if (cols.has('volumen_json_automatico') && r.volumen_json_automatico && (lung == null || fibro == null || total == null)) {
-        try {
-          const j = typeof r.volumen_json_automatico === 'string'
-            ? JSON.parse(r.volumen_json_automatico)
-            : r.volumen_json_automatico;
-          if (lung == null) lung = j?.lung_volume_ml ?? lung;
-          if (fibro == null) fibro = j?.fibrosis_volume_ml ?? fibro;
-          if (total == null) total = j?.total_volume_ml ?? total;
-        } catch {}
-      }
-
-      if (total == null && lung != null && fibro != null) {
-        total = Number(lung) + Number(fibro);
-      }
-
-      if (lung == null && fibro == null && total == null) {
-        // Fallback a archivo (solo si existe)
+        // Fallback a archivo volumenes.json, si existe
         const volPathA = path.join(__dirname, '..', 'temp', req.params.folder, 'segmentaciones_por_dicom', 'volumenes.json');
         const volPathB = path.join(__dirname, '..', 'temp', req.params.folder, 'volumenes.json');
         const candidate = fs.existsSync(volPathA) ? volPathA : (fs.existsSync(volPathB) ? volPathB : null);
-        if (!candidate) {
-          console.warn('[volumen] No hay valor en BD ni archivo volumenes.json (aún).');
-          return res.status(404).json({ error: "Volumen no disponible aún" });
-        }
+        if (!candidate) return res.status(404).json({ error: 'Volumen no disponible aún' });
         try {
           const data = JSON.parse(await fsp.readFile(candidate, 'utf8'));
           return res.json({
-            lung_volume_ml: data?.lung_volume_ml ?? null,
-            fibrosis_volume_ml: data?.fibrosis_volume_ml ?? null,
-            total_volume_ml: data?.total_volume_ml ?? null,
+            lung_volume_ml: Number(data?.lung_volume_ml) || null,
+            fibrosis_volume_ml: Number(data?.fibrosis_volume_ml) || null,
+            total_volume_ml: Number(data?.total_volume_ml) || null,
           });
         } catch (e) {
-          console.error("[volumen] Error al leer", candidate, e.message);
-          return res.status(500).json({ error: "Error interno al leer volúmenes." });
+          console.error('[volumen] error leyendo archivo:', e);
+          return res.status(500).json({ error: 'Error interno al leer volúmenes.' });
         }
       }
 
+      const r = rows[0] || {};
+      const lung = r.volumen_pulmon_manual ?? r.volumen_pulmon_automatico ?? null;
+      const fib  = r.volumen_fibrosis_manual ?? r.volumen_fibrosis_automatico ?? null;
+      let total  = r.volumen_manual ?? r.volumen_automatico ?? null;
+      if (total == null && lung != null && fib != null) total = Number(lung) + Number(fib);
+
       return res.json({
-        lung_volume_ml: lung ?? null,
-        fibrosis_volume_ml: fibro ?? null,
-        total_volume_ml: total ?? null,
+        lung_volume_ml: lung != null ? Number(lung) : null,
+        fibrosis_volume_ml: fib != null ? Number(fib) : null,
+        total_volume_ml: total != null ? Number(total) : null,
       });
     });
   } catch (e) {
-    console.error('[volumen] error:', e.message);
+    console.error('[volumen] error:', e);
     return res.status(500).json({ error: 'Error interno' });
   }
 });
 
-// GET /api/segment/valid-indices/:folder
+// Indices válidos (slices) que tienen máscaras en BD
 router.get("/valid-indices/:folder", (req, res) => {
   const parsed = parseFolder(req.params.folder);
   if (!parsed) return res.status(400).json({ error: "folder inválido" });
@@ -208,17 +166,16 @@ router.get("/valid-indices/:folder", (req, res) => {
      ORDER BY num_tomo ASC`;
   db.query(sql, [parsed.nss, parsed.fechaSQL], (err, rows) => {
     if (err) {
-      console.error('[valid-indices] DB error:', err.message);
+      console.error('[valid-indices] DB error:', err);
       return res.status(500).json({ error: 'DB error' });
     }
     const map = {};
-    for (const r of rows) map[r.num_tomo - 1] = true; // front usa 0-based
-    console.log('[valid-indices] total indices:', rows?.length || 0);
+    for (const r of rows || []) map[r.num_tomo - 1] = true; // front usa 0-based
     res.json(map);
   });
 });
 
-// GET /api/segment/mask-db-by-folder/:folder/:index
+// Máscara por slice (prefiere manual)
 router.get('/mask-db-by-folder/:folder/:index', (req, res) => {
   const parsed = parseFolder(req.params.folder);
   if (!parsed) return res.status(400).json({ error: 'folder inválido' });
@@ -234,11 +191,10 @@ router.get('/mask-db-by-folder/:folder/:index', (req, res) => {
        AND tipo IN ('manual','automatica')`;
   db.query(sql, [parsed.nss, parsed.fechaSQL, num_tomo], (err, rows) => {
     if (err) {
-      console.error('[mask-db-by-folder] DB error:', err.message);
+      console.error('[mask-db-by-folder] DB error:', err);
       return res.status(500).json({ error: 'DB error' });
     }
     if (!rows || !rows.length) {
-      console.warn('[mask-db-by-folder] No hay máscaras para tomo', num_tomo);
       return res.json({ lung: [], fibrosis: [] });
     }
     const byClase = pickPreferManual(rows);
@@ -247,16 +203,13 @@ router.get('/mask-db-by-folder/:folder/:index', (req, res) => {
   });
 });
 
-// ========= Helpers exportables (para imageRoutes) =========
-
-// Busca recursivamente (profundidad 1) un directorio que contenga mask_*.json
+// ========= Helpers exportables =========
 async function findMaskBaseDir(absDir) {
   const candidates = [];
   const pushIfExists = (p) => { if (fs.existsSync(p)) candidates.push(p); };
   pushIfExists(absDir);
   pushIfExists(path.join(absDir, 'segmentaciones_por_dicom'));
 
-  // subcarpetas nivel 1
   try {
     const entries = await fsp.readdir(absDir, { withFileTypes: true });
     for (const e of entries) {
@@ -282,10 +235,6 @@ async function findMaskBaseDir(absDir) {
   return null;
 }
 
-/**
- * Escanea (de forma robusta) las máscaras en absDir (o subcarpetas típicas)
- * y las vuelca a la BD (auto + manual_simplified).
- */
 async function guardarMascarasEnBDFromDir(absDir, nss, fechaSQL) {
   const segmentDir = await findMaskBaseDir(absDir);
   if (!segmentDir) {
@@ -308,8 +257,6 @@ async function guardarMascarasEnBDFromDir(absDir, nss, fechaSQL) {
     return m ? parseInt(m[1], 10) : NaN;
   };
   const indices = Array.from(new Set(all.map(idxOf).filter(Number.isFinite))).sort((a,b)=>a-b);
-  console.log('[POST-SEG] índices detectados:', indices.slice(0,20), indices.length>20?'...':'');
-
   const tryPath = (i, suffix='') => {
     const p3 = path.join(segmentDir, `mask_${String(i).padStart(3,'0')}${suffix}.json`);
     const p4 = path.join(segmentDir, `mask_${String(i).padStart(4,'0')}${suffix}.json`);
@@ -346,12 +293,8 @@ async function guardarMascarasEnBDFromDir(absDir, nss, fechaSQL) {
 }
 
 /**
- * Lee volumenes.json (si existe) en absDir o subcarpetas típicas y
- * actualiza estudio.* con lo que haya disponible:
- * - volumen_automatico (total)
- * - volumen_pulmon_automatico (opcional)
- * - volumen_fibrosis_automatico (opcional)
- * - volumen_json_automatico (opcional, respaldo)
+ * Lee volumenes.json (si existe) y actualiza estudio.*
+ * - volumen_automatico, volumen_pulmon_automatico, volumen_fibrosis_automatico
  */
 async function updateEstudioVolumenFromDir(absDir, nss, fechaSQL) {
   const candidates = [];
@@ -359,7 +302,6 @@ async function updateEstudioVolumenFromDir(absDir, nss, fechaSQL) {
   const segDir = path.join(absDir, 'segmentaciones_por_dicom');
   if (fs.existsSync(segDir)) candidates.push(path.join(segDir, 'volumenes.json'));
 
-  // subcarpetas nivel 1
   try {
     const entries = await fsp.readdir(absDir, { withFileTypes: true });
     for (const e of entries) {
@@ -376,7 +318,7 @@ async function updateEstudioVolumenFromDir(absDir, nss, fechaSQL) {
     if (fs.existsSync(c)) { volFile = c; break; }
   }
   if (!volFile) {
-    console.warn('[POST-SEG] volumenes.json no encontrado en candidatos:', candidates.slice(0,6));
+    console.warn('[POST-SEG] volumenes.json no encontrado');
     return;
   }
 
@@ -388,31 +330,14 @@ async function updateEstudioVolumenFromDir(absDir, nss, fechaSQL) {
     const total = Number(j?.total_volume_ml);
 
     if (!Number.isFinite(total)) {
-      console.warn('[POST-SEG] total_volume_ml inválido en', volFile, 'contenido:', j);
+      console.warn('[POST-SEG] total_volume_ml inválido en', volFile);
       return;
     }
 
-    const cols = await getColumns('estudio');
-    const sets = [];
-    const vals = [];
-
-    if (cols.has('volumen_automatico')) {
-      sets.push('volumen_automatico=?'); vals.push(total);
-    }
-    if (Number.isFinite(lung) && cols.has('volumen_pulmon_automatico')) {
-      sets.push('volumen_pulmon_automatico=?'); vals.push(lung);
-    }
-    if (Number.isFinite(fibro) && cols.has('volumen_fibrosis_automatico')) {
-      sets.push('volumen_fibrosis_automatico=?'); vals.push(fibro);
-    }
-    if (cols.has('volumen_json_automatico')) {
-      sets.push('volumen_json_automatico=?'); vals.push(JSON.stringify(j));
-    }
-
-    if (!sets.length) {
-      console.warn('[POST-SEG] No hay columnas de volumen para actualizar en estudio; considera agregar columnas por-clase.');
-      return;
-    }
+    const sets = ['volumen_automatico=?'];
+    const vals = [total];
+    if (Number.isFinite(lung))  { sets.push('volumen_pulmon_automatico=?');   vals.push(lung); }
+    if (Number.isFinite(fibro)) { sets.push('volumen_fibrosis_automatico=?'); vals.push(fibro); }
 
     const sql = `UPDATE estudio SET ${sets.join(', ')} WHERE nss_expediente=? AND fecha=?`;
     vals.push(nss, fechaSQL);
@@ -429,13 +354,12 @@ async function updateEstudioVolumenFromDir(absDir, nss, fechaSQL) {
   }
 }
 
-// POST /api/segment/save-edit/:folder/:index  -> guarda edición manual en BD
+// Guardar edición manual
 router.post('/save-edit/:folder/:index', express.json(), async (req, res) => {
   try {
     const parsed = parseFolder(req.params.folder);
     if (!parsed) return res.status(400).json({ error: 'folder inválido' });
 
-    // index 0-based del front (e.g. "079")
     const indexStr = String(req.params.index).replace(/\D+/g, '');
     if (indexStr === '') return res.status(400).json({ error: 'index inválido' });
     const indexZero = parseInt(indexStr, 10);
@@ -446,21 +370,13 @@ router.post('/save-edit/:folder/:index', express.json(), async (req, res) => {
     const fibrosis_editable = Array.isArray(req.body?.fibrosis_editable) ? req.body.fibrosis_editable : [];
 
     await upsertMascaraAsync({
-      nss: parsed.nss,
-      fechaSQL: parsed.fechaSQL,
-      num_tomo,
-      tipo: 'manual',
-      clase: 'pulmon',
-      payload: { lung_editable }
+      nss: parsed.nss, fechaSQL: parsed.fechaSQL, num_tomo,
+      tipo: 'manual', clase: 'pulmon', payload: { lung_editable }
     });
 
     await upsertMascaraAsync({
-      nss: parsed.nss,
-      fechaSQL: parsed.fechaSQL,
-      num_tomo,
-      tipo: 'manual',
-      clase: 'fibrosis',
-      payload: { fibrosis_editable }
+      nss: parsed.nss, fechaSQL: parsed.fechaSQL, num_tomo,
+      tipo: 'manual', clase: 'fibrosis', payload: { fibrosis_editable }
     });
 
     console.log('[SAVE-EDIT] ok → nss=%s fecha=%s num_tomo=%s lungPts=%d fibPts=%d',
@@ -473,9 +389,7 @@ router.post('/save-edit/:folder/:index', express.json(), async (req, res) => {
   }
 });
 
-// GET /api/segment/mask-json/:folder/:name
-//   - sin sufijo: devuelve {lung, fibrosis} desde tipo 'automatica'
-//   - con _simplified: devuelve {lung_editable, fibrosis_editable} desde 'manual'
+// Devolver máscaras (automática o manual_simplified) desde BD
 router.get('/mask-json/:folder/:name', async (req, res) => {
   const parsed = parseFolder(req.params.folder);
   if (!parsed) return res.status(400).json({ error: 'folder inválido' });
@@ -495,7 +409,7 @@ router.get('/mask-json/:folder/:name', async (req, res) => {
     [parsed.nss, parsed.fechaSQL, num_tomo, tipo],
     (err, rows) => {
       if (err) {
-        console.error('[mask-json] DB error:', err.message);
+        console.error('[mask-json] DB error:', err);
         return res.status(500).json({ error: 'DB error' });
       }
       if (!rows || rows.length === 0) {
@@ -521,14 +435,12 @@ router.get('/mask-json/:folder/:name', async (req, res) => {
   );
 });
 
-// Devuelve si el estudio ya tiene datos volcados en BD.
-// GET /api/segment/status/:folder
+// Estado / progreso de volcado/segmentación
 router.get('/status/:folder', async (req, res) => {
   const parsed = parseFolder(req.params.folder);
   if (!parsed) return res.status(400).json({ error: 'folder inválido' });
 
   try {
-    // 1) total de imágenes del estudio
     const totalImgs = await new Promise((resolve, reject) => {
       db.query(
         'SELECT COUNT(*) AS c FROM imagen WHERE nss_exp=? AND fecha_estudio=?',
@@ -537,7 +449,6 @@ router.get('/status/:folder', async (req, res) => {
       );
     });
 
-    // 2) slices con máscaras ya volcadas
     const slicesConMascara = await new Promise((resolve, reject) => {
       db.query(
         `SELECT COUNT(DISTINCT num_tomo) AS c
@@ -550,60 +461,44 @@ router.get('/status/:folder', async (req, res) => {
       );
     });
 
-    // 3) volumen ya disponible en estudio (cualquiera de las variantes)
-    const cols = await getColumns('estudio');
-    const wants = [];
-    if (cols.has('volumen_automatico')) wants.push('volumen_automatico');
-    if (cols.has('volumen_pulmon_automatico')) wants.push('volumen_pulmon_automatico');
-    if (cols.has('volumen_fibrosis_automatico')) wants.push('volumen_fibrosis_automatico');
-    if (cols.has('volumen_json_automatico')) wants.push('volumen_json_automatico');
+    const sqlV = `
+      SELECT volumen_automatico, volumen_pulmon_automatico, volumen_fibrosis_automatico,
+             volumen_manual, volumen_pulmon_manual, volumen_fibrosis_manual
+        FROM estudio
+       WHERE nss_expediente=? AND fecha=?
+       LIMIT 1`;
+    const vols = await new Promise((resolve, reject) => {
+      db.query(sqlV, [parsed.nss, parsed.fechaSQL],
+        (err, rows) => err ? reject(err) : resolve(rows?.[0] || {}));
+    });
 
-    let vol = {};
-    if (wants.length) {
-      const sql = `SELECT ${wants.join(', ')} FROM estudio WHERE nss_expediente=? AND fecha=? LIMIT 1`;
-      vol = await new Promise((resolve, reject) => {
-        db.query(sql, [parsed.nss, parsed.fechaSQL], (err, rows) =>
-          err ? reject(err) : resolve(rows?.[0] || {})
-        );
-      });
-    }
+    const lung = vols?.volumen_pulmon_manual ?? vols?.volumen_pulmon_automatico ?? null;
+    const fib  = vols?.volumen_fibrosis_manual ?? vols?.volumen_fibrosis_automatico ?? null;
+    let total  = vols?.volumen_manual ?? vols?.volumen_automatico ?? null;
+    if (total == null && lung != null && fib != null) total = Number(lung) + Number(fib);
 
-    let total = vol?.volumen_automatico ?? null;
-    let pulm  = vol?.volumen_pulmon_automatico ?? null;
-    let fib   = vol?.volumen_fibrosis_automatico ?? null;
-
-    if ((pulm == null || fib == null || total == null) && vol?.volumen_json_automatico) {
-      try {
-        const j = typeof vol.volumen_json_automatico === 'string'
-          ? JSON.parse(vol.volumen_json_automatico)
-          : vol.volumen_json_automatico;
-        if (pulm == null)  pulm  = j?.lung_volume_ml ?? pulm;
-        if (fib == null)   fib   = j?.fibrosis_volume_ml ?? fib;
-        if (total == null) total = j?.total_volume_ml ?? total;
-      } catch {}
-    }
-    if (total == null && pulm != null && fib != null) total = Number(pulm) + Number(fib);
-
-    const volumeAvailable = (total != null) || (pulm != null) || (fib != null);
-
-    // 4) progreso + estado
-    const progreso = totalImgs > 0
-      ? Math.max(0, Math.min(100, Math.round((slicesConMascara / totalImgs) * 100)))
-      : (slicesConMascara > 0 ? 100 : 0);
+    const volumeAvailable = (total != null) || (lung != null) || (fib != null);
 
     let estado = 'segmenting';
-    if (slicesConMascara > 0 && slicesConMascara < totalImgs) estado = 'dumping';
+    if (totalImgs > 0 && slicesConMascara > 0 && slicesConMascara < totalImgs) estado = 'dumping';
     if ((totalImgs > 0 && slicesConMascara >= totalImgs) || volumeAvailable) estado = 'ready';
 
     const ready = (estado === 'ready');
+    const progreso = (totalImgs > 0)
+      ? Math.max(0, Math.min(100, Math.round((slicesConMascara / totalImgs) * 100)))
+      : (slicesConMascara > 0 ? 100 : null);
 
     res.json({
       ready,
       estado,               // 'segmenting' | 'dumping' | 'ready'
-      progreso,             // 0..100
+      progreso,             // 0..100 o null si no hay total
       totalImgs,
       slicesConMascara,
-      volume: { total_auto: total ?? null, pulm_auto: pulm ?? null, fib_auto: fib ?? null },
+      volume: {
+        total_auto: total != null ? Number(total) : null,
+        pulm_auto: lung != null ? Number(lung) : null,
+        fib_auto:  fib  != null ? Number(fib)  : null
+      },
       nss: parsed.nss,
       fecha: parsed.fechaSQL,
     });

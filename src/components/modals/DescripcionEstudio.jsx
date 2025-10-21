@@ -8,7 +8,7 @@ const DescripcionEstudio = ({ descripcion, nss_expediente, fecha, onClose, onSav
   const handleSave = async () => {
     setSaving(true);
     try {
-      await axios.patch("http://localhost:5000/estudios/descripcion", {
+      await axios.patch("/api/estudios/descripcion", {
         nss_expediente,
         fecha,
         descripcion: desc,

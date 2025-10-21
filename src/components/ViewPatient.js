@@ -13,8 +13,12 @@ import cornerstoneWADOImageLoader from "cornerstone-wado-image-loader";
 import dicomParser from "dicom-parser";
 
 import DescripcionEstudio from "./modals/DescripcionEstudio";
+import EditFieldStudio from "./modals/EditFieldStudio";
 import RenderPulmon from "./RenderPulmon";
 import { descargarReportePaciente } from "../utils/reportes/descargarReportes";
+
+// Endpoints de edición de campos por estudio
+const diagnosticoEndpoint = "/api/estudios/diagnostico"; 
 
 // ---- Cornerstone config (WADO-URI) ----
 cornerstoneWADOImageLoader.external.cornerstone = cornerstone;
@@ -104,57 +108,53 @@ export default function ViewPatient() {
 
   const [status, setStatus] = useState(null);
 
-
   const [showDescripcionModal, setShowDescripcionModal] = useState(false);
   const [descripcionActual, setDescripcionActual] = useState("");
+
+  // estado para diagnóstico
+  const [showDiagnosticoModal, setShowDiagnosticoModal] = useState(false);
 
   // Overlay 3D: si tiene folder => se muestra full-screen
   const [show3DForFolder, setShow3DForFolder] = useState(null);
 
-  // Bloquear scroll cuando hay overlay
-  // useEffect(() => {
-  //   const prev = document.body.style.overflow;
-  //   if (show3DForFolder) document.body.style.overflow = "hidden";
-  //   return () => { document.body.style.overflow = prev; };
-  // }, [show3DForFolder]);
+  // Polling de estado del volcado/segmentación cuando el 3D está abierto
+  useEffect(() => {
+    if (!show3DForFolder) return;
+    let canceled = false;
+    let tries = 0;
 
-useEffect(() => {
-  if (!show3DForFolder) return; // solo cuando hay overlay 3D abierto
-  let canceled = false;
-  let tries = 0;
-
-  async function poll() {
-    try {
-      const { data } = await api.get(`/api/segment/status/${show3DForFolder}`);
-      if (canceled) return;
-      setStatus(data);
-      if (data.ready) return; // listo: cortamos el polling
-      tries++;
-      setTimeout(poll, Math.min(3000, 1000 + tries * 200));
-    } catch (e) {
-      if (!canceled) setTimeout(poll, 3000);
+    async function poll() {
+      try {
+        const { data } = await api.get(`/api/segment/status/${show3DForFolder}`);
+        if (canceled) return;
+        setStatus(data);
+        if (data.ready) return; // listo → cortar polling
+        tries++;
+        setTimeout(poll, Math.min(3000, 1000 + tries * 200));
+      } catch {
+        if (!canceled) setTimeout(poll, 3000);
+      }
     }
-  }
 
-  setStatus(null);
-  poll();
-  return () => { canceled = true; };
-}, [show3DForFolder]);
+    setStatus(null);
+    poll();
+    return () => { canceled = true; };
+  }, [show3DForFolder]);
 
-useEffect(() => {
-  if (status?.ready) {
-    // cuando termina el volcado a BD, refrescamos la lista
-    fetchRecord();
-  }
-}, [status?.ready]);
+  // Al terminar el volcado, refrescar estudios para ver cambios (máscaras/volumen visible en tarjetas)
+  useEffect(() => {
+    if (status?.ready) {
+      fetchRecord();
+    }
+  }, [status?.ready]);
 
   // Cargar expediente
   const fetchRecord = async () => {
     try {
       setLoading(true); setError("");
-      const { data: exp } = await api.get(`/api/expedientes/${nss}`);
-      const studiesArr = Array.isArray(exp?.studies) ? exp.studies : [];
-
+      const { data: studiesArr } = await api.get(`/api/estudios/${nss}`);
+      const exp = { nss, studies: studiesArr }; 
+      console.log("exp.studies (raw):", exp?.studies?.slice?.(0, 3));
       const studiesWithThumbs = await Promise.all(
         studiesArr.map(async (s) => {
           const safeFecha = toSQLDateString(s.fecha).replace(/[: ]/g, "_");
@@ -199,8 +199,7 @@ useEffect(() => {
     }
   };
 
-  // al montar el StudyView
-
+  // Montaje
   useEffect(() => {
     if (!nss) {
       alert("NSS inválido");
@@ -250,7 +249,11 @@ useEffect(() => {
               <label>Fecha de Nacimiento</label>
               <input
                 type="date"
-                value={new Date(record.fecha_nacimiento).toISOString().split("T")[0]}
+                value={
+                  record?.fecha_nacimiento
+                    ? new Date(record.fecha_nacimiento).toISOString().split("T")[0]
+                    : ""
+                }
                 disabled
               />
             </div>
@@ -331,19 +334,38 @@ useEffect(() => {
                   >
                     Descripción ✏️
                   </button>
-{show3DForFolder === s.folder && status && !status.ready && (
-  <div style={{padding:'1rem', textAlign:'center', opacity:0.8}}>
-    {status.estado === 'segmenting' && 'Segmentando…'}
-    {status.estado === 'dumping' && 'Guardando resultados…'}
-    {!status.estado && 'Procesando…'}
-    {typeof status.progreso === 'number' && (
-      <div style={{width:280, height:8, margin:'8px auto 0', background:'#eee', borderRadius:6, overflow:'hidden'}}>
-        <div style={{width:`${Math.max(0,Math.min(100,status.progreso))}%`, height:'100%'}} />
-      </div>
-    )}
-  </div>
-)}
 
+                    <button
+                      className="btn"
+                      title={s.diagnostico || "-"}
+                      onClick={() => {
+                        const value = s.diagnostico ?? "";
+                        const fechaSQL = typeof s.fecha === "string" ? s.fecha : toSQLDateString(s.fecha); 
+                        setShowDiagnosticoModal({
+                          open: true,
+                          nss_expediente: record.nss,
+                          fecha: fechaSQL,  
+                          value,
+                        });
+                      }}
+                      style={{ marginTop: 8 }}
+                    >
+                      Diagnóstico 🩺
+                    </button>
+
+                  {/* Barra de progreso (solo si el overlay 3D de este estudio está abierto) */}
+                  {show3DForFolder === s.folder && status && !status.ready && (
+                    <div style={{padding:'1rem', textAlign:'center', opacity:0.8}}>
+                      {status.estado === 'segmenting' && 'Segmentando…'}
+                      {status.estado === 'dumping' && 'Guardando resultados…'}
+                      {!status.estado && 'Procesando…'}
+                      {typeof status.progreso === 'number' && (
+                        <div style={{width:280, height:8, margin:'8px auto 0', background:'#eee', borderRadius:6, overflow:'hidden'}}>
+                          <div style={{width:`${Math.max(0,Math.min(100,status.progreso))}%`, height:'100%'}} />
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {/* Visor 2D */}
                   <button
@@ -362,11 +384,11 @@ useEffect(() => {
                   {/* Abrir overlay 3D */}
                   <button
                     className="btn"
-                      onClick={() => {
-                        setShow3DForFolder(prev => prev === s.folder ? null : s.folder);
-                        setStatus(null); // limpiar barra/estado anterior al cambiar de estudio
-                      }}                    
-                    style={{ marginTop: 8 }}                    
+                    onClick={() => {
+                      setShow3DForFolder(prev => prev === s.folder ? null : s.folder);
+                      setStatus(null); // limpiar barra/estado de otro estudio
+                    }}
+                    style={{ marginTop: 8 }}
                   >
                     {show3DForFolder === s.folder ? "Ocultar 3D" : "Visualizar 3D 🏗️"}
                   </button>
@@ -405,7 +427,7 @@ useEffect(() => {
           </section>
         </div>
 
-        {/* Modal de descripción */}
+        {/* Modales */}
         <div>
           {showDescripcionModal && (
             <DescripcionEstudio
@@ -413,6 +435,21 @@ useEffect(() => {
               nss_expediente={showDescripcionModal.nss_expediente}
               fecha={showDescripcionModal.fecha}
               onClose={() => setShowDescripcionModal(false)}
+              onSave={async () => { await fetchRecord(); }}
+            />
+          )}
+
+          {/* Modal Diagnóstico */}
+          {showDiagnosticoModal && (
+            <EditFieldStudio
+              value={showDiagnosticoModal.value} 
+              nss_expediente={showDiagnosticoModal.nss_expediente}
+              fecha={showDiagnosticoModal.fecha}
+              endpoint={diagnosticoEndpoint}
+              fieldName="diagnostico"
+              placeholder="Ingrese el diagnóstico del estudio"
+              title="Diagnóstico del Estudio"
+              onClose={() => setShowDiagnosticoModal(false)}
               onSave={async () => { await fetchRecord(); }}
             />
           )}
