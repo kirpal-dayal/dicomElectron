@@ -7,6 +7,7 @@ import { descargarReporteGeneral } from '../utils/reportes/descargarReportes';
 
 import logoBlanco from '../assets/images/logo_graf_blanco.svg'; //blanco
 import '../styles/styles.css';
+import '../styles/variables.css';
 
 export default function DoctorView() {
   const navigate = useNavigate()
@@ -166,11 +167,12 @@ useEffect(() => {
         .nav-buttons .btn:hover { background:#2563eb; }
 
         .container {
-          max-width:1200px; margin:2rem auto; padding:0 1rem;
+          max-width:1200px; margin:var(--height-navbar) auto 2rem; padding:0 1rem, text-align:center;
         }
         .table-card {
           background:#fff; border-radius:8px; padding:1.5rem;
           box-shadow:0 4px 12px rgba(0,0,0,0.1);
+          text-align:center;
         }
         .table-card h2 {
           font-size:1.75rem; color:#111827; margin-bottom:.75rem;
@@ -251,8 +253,9 @@ useEffect(() => {
 
       <div className="container">
         <div className="table-card">
-          <h2>Pacientes Registrados</h2>
-
+          <h1>Bienvenido, {username}</h1>
+          <p>Aquí puedes gestionar los expedientes de tus pacientes.</p>
+          <br />
           {/* Barra de búsqueda */}
           <div className="search-bar">
             <input
