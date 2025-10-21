@@ -22,30 +22,27 @@
 // });
 
 // module.exports = db;
-
 // backend/connectionDb.js
 const mysql = require('mysql2');
 require('dotenv').config();
 
 const {
-  DB_HOST = '127.0.0.1',
-  DB_PORT = '3306',
-  DB_USER = 'root',
-  DB_PASS = '',
-  DB_NAME = 'fibrosis_v07'
+  DB_HOST='127.0.0.1',
+  DB_PORT='3307',
+  DB_USER='app',
+  DB_PASS='app123',
+  DB_NAME='fibrosis_v07'
 } = process.env;
-
-const PASSWORD = DB_PASS || DB_PASSW || '';
 
 const db = mysql.createPool({
   host: DB_HOST,
   port: Number(DB_PORT),
   user: DB_USER,
-  password: PASSWORD,
+  password: DB_PASS,   // << sin DB_PASSW
   database: DB_NAME,
   waitForConnections: true,
   connectionLimit: 10,
-  queueLimit: 0
+  queueLimit: 0,
 });
 
 db.getConnection((err, conn) => {
@@ -58,4 +55,3 @@ db.getConnection((err, conn) => {
 });
 
 module.exports = db;
-

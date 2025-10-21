@@ -1,60 +1,51 @@
 # # primera vez o cuando cambies schema/seed:
+# docker compose up -d
+
+# Comandos para hacer en el root de la carpeta donde se tiene el entorno de conda
+# npm install (solo una vez)
+# npm run build (solo una vez)
+# node backend/server.js
+
+# Si ya habías levantado la DB antes, borra el volumen para re-sembrar
 # docker compose down -v
-# docker compose up -d --build
+# docker compose up -d
 
-# docker ps
-# docker logs fibrosis_db --tail=50
-
-version: "3.9"
 
 services:
   db:
     image: mysql:8.0
     container_name: fibrosis_db
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
-      MYSQL_DATABASE: ${MYSQL_DATABASE}
-      MYSQL_USER: ${MYSQL_USER}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
-      APP_ENCRYPTION_KEY: ${APP_ENCRYPTION_KEY}   # disponible para los seed scripts
+      # credenciales sencillas para desarrollo
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: fibrosis_v07
+      MYSQL_USER: app
+      MYSQL_PASSWORD: app123
     command: ["mysqld",
       "--default-authentication-plugin=mysql_native_password",
       "--character-set-server=utf8mb4",
-      "--collation-server=utf8mb4_unicode_ci"]
+      "--collation-server=utf8mb4_unicode_ci",
+      "--sql-mode=STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION"]
     ports:
-      - "3306:3306"
+      - "3307:3306"
     volumes:
+      # volumen de datos persistentes
       - db_data:/var/lib/mysql
-      - ./creacionBD_mysql:/docker-entrypoint-initdb.d:ro
+
+      # tu esquema v07: se ejecuta automáticamente al primer arranque
+      - ./creacionBD_mysql/creacion_tablas_v07.sql:/docker-entrypoint-initdb.d/00-creacion_tablas_v07.sql:ro
+
+      # (OPCIONAL) si luego tienes un archivo de inserts v07, descomenta y apunta aquí
+      # - ./creacionBD_mysql/inserciones_prueba_fibrosis_v07.sql:/docker-entrypoint-initdb.d/01-inserciones_prueba_fibrosis_v07.sql:ro
+
+      # (NO recomendado en Windows) scripts .sh pueden fallar por CRLF. Prefiere .sql.
+      # - ./creacionBD_mysql/01-seed.sh:/docker-entrypoint-initdb.d/01-seed.sh:ro
+
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-p${MYSQL_ROOT_PASSWORD}"]
       interval: 5s
       timeout: 5s
       retries: 30
-
-  api:
-    build:
-      context: .
-      dockerfile: Dockerfile.api
-    container_name: fibrosis_api
-    environment:
-      DB_HOST: ${DB_HOST}
-      DB_PORT: ${DB_PORT}
-      DB_USER: ${DB_USER}
-      DB_PASS: ${DB_PASS}
-      DB_NAME: ${DB_NAME}
-      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
-      PORT: ${PORT}
-      NODE_ENV: ${NODE_ENV}
-      VITE_API_BASE: ${VITE_API_BASE}
-    ports:
-      - "5000:5000"
-    depends_on:
-      db:
-        condition: service_healthy
-    # Si tu backend escribe/lee archivos locales, monta el repo:
-    volumes:
-      - ./:/app
 
 volumes:
   db_data:

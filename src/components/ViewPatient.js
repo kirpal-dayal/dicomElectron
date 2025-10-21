@@ -148,56 +148,93 @@ export default function ViewPatient() {
     }
   }, [status?.ready]);
 
-  // Cargar expediente
-  const fetchRecord = async () => {
+// Cargar expediente + estudios (tolerante a 404)
+const fetchRecord = async () => {
+  try {
+    setLoading(true);
+    setError("");
+
+    // 1) Traer datos del expediente (para NSS, fecha_nacimiento, sexo, etc.)
+    let paciente = { nss };
     try {
-      setLoading(true); setError("");
-      const { data: studiesArr } = await api.get(`/api/estudios/${nss}`);
-      const exp = { nss, studies: studiesArr }; 
-      console.log("exp.studies (raw):", exp?.studies?.slice?.(0, 3));
-      const studiesWithThumbs = await Promise.all(
-        studiesArr.map(async (s) => {
-          const safeFecha = toSQLDateString(s.fecha).replace(/[: ]/g, "_");
-          const folder = `${exp.nss}_${safeFecha}`;
-          let dicomUrl = null;
-
-          try {
-            const { data: files } = await api.get(`/api/image/dicom-list/${folder}`);
-            if (Array.isArray(files) && files.length) {
-              const mid = files[Math.floor(files.length / 2)];
-              dicomUrl = wado(`/api/image/dicom/${folder}/${encodeURIComponent(mid)}`);
-            }
-          } catch {}
-
-          let fechaDicomSQL = null;
-          if (dicomUrl) {
-            try {
-              const image = await cornerstone.loadAndCacheImage(dicomUrl);
-              const gs = cornerstone.metaData.get("generalStudyModule", dicomUrl) || {};
-              let studyDate = gs.studyDate;
-              let studyTime = gs.studyTime;
-              if ((!studyDate || studyDate.length < 8) && image?.data?.string) {
-                const dsString = image.data.string.bind(image.data);
-                studyDate = dsString?.("x00080020") || studyDate;
-                studyTime = dsString?.("x00080030") || studyTime;
-              }
-              fechaDicomSQL = toSQLFromDicomDateTime(studyDate, studyTime);
-            } catch {}
-          }
-
-          const fechaMostrar = fechaDicomSQL || s.fecha;
-          return { ...s, folder, dicomUrl, fechaMostrar, fechaDicomSQL };
-        })
-      );
-
-      setRecord({ ...exp, studies: studiesWithThumbs });
+      const { data: exp } = await api.get(`/api/expedientes/${nss}`);
+      // Ajuste mínimo: si el backend devuelve fecha_nacimiento como string, la dejamos tal cual.
+      paciente = { ...exp, nss }; // garantizamos nss
     } catch (e) {
-      console.error(e);
-      setError("No se pudo cargar el expediente o sus estudios");
-    } finally {
-      setLoading(false);
+      // Si 404 u otro error al leer el expediente, seguimos con { nss } para que por lo menos
+      // se muestre el NSS y la tarjeta de subir ZIP. Solo rompemos en errores “fuertes”.
+      if (e?.response?.status && e.response.status !== 404) throw e;
     }
-  };
+
+    // 2) Traer los estudios del paciente
+    let studiesArr = [];
+    try {
+      const { data } = await api.get(`/api/estudios/${nss}`);
+      studiesArr = Array.isArray(data) ? data : [];
+    } catch (e) {
+      // Si no hay estudios, el backend puede responder 404. Lo tratamos como lista vacía.
+      if (e?.response?.status === 404) {
+        studiesArr = [];
+      } else {
+        throw e;
+      }
+    }
+
+    console.log("exp.studies (raw):", studiesArr?.slice?.(0, 3));
+
+    // 3) Enriquecer con thumbnail DICOM, folder y fechaMostrar
+    const studiesWithThumbs = await Promise.all(
+      studiesArr.map(async (s) => {
+        // Si ya viene string tipo "YYYY-MM-DD HH:MM:SS", úsalo tal cual.
+        const fechaBase = typeof s.fecha === "string" ? s.fecha : toSQLDateString(s.fecha);
+        const safeFecha = (fechaBase || "").replace(/[: ]/g, "_");
+        const folder = `${paciente.nss}_${safeFecha}`;
+
+        let dicomUrl = null;
+        try {
+          const { data: files } = await api.get(`/api/image/dicom-list/${folder}`);
+          if (Array.isArray(files) && files.length) {
+            const mid = files[Math.floor(files.length / 2)];
+            dicomUrl = wado(`/api/image/dicom/${folder}/${encodeURIComponent(mid)}`);
+          }
+        } catch {
+          // sin DICOMs/thumbnail no es fatal
+        }
+
+        // Intento de leer fecha de DICOM (opcional)
+        let fechaDicomSQL = null;
+        if (dicomUrl) {
+          try {
+            const image = await cornerstone.loadAndCacheImage(dicomUrl);
+            const gs = cornerstone.metaData.get("generalStudyModule", dicomUrl) || {};
+            let studyDate = gs.studyDate;
+            let studyTime = gs.studyTime;
+            if ((!studyDate || studyDate.length < 8) && image?.data?.string) {
+              const dsString = image.data.string.bind(image.data);
+              studyDate = dsString?.("x00080020") || studyDate;
+              studyTime = dsString?.("x00080030") || studyTime;
+            }
+            fechaDicomSQL = toSQLFromDicomDateTime(studyDate, studyTime);
+          } catch {
+            // si no hay metadata, seguimos
+          }
+        }
+
+        const fechaMostrar = fechaDicomSQL || s.fecha || fechaBase;
+        return { ...s, folder, dicomUrl, fechaMostrar, fechaDicomSQL };
+      })
+    );
+
+    // 4) Guardar en estado un solo objeto record que el JSX espera
+    setRecord({ ...paciente, studies: studiesWithThumbs });
+  } catch (e) {
+    console.error(e);
+    setError("No se pudo cargar el expediente o sus estudios");
+  } finally {
+    setLoading(false);
+  }
+};
+
 
   // Montaje
   useEffect(() => {

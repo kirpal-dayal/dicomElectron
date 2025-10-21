@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS `fibrosis_v07`.`admin` (
   `activo` TINYINT NOT NULL DEFAULT 1,
   `nombre_admin` VARCHAR(45) NULL,
   `contrasena_admin` BLOB NOT NULL,
-  `fecha_creacion` TIMESTAMP NULL,
+  `fecha_creacion` DATETIME NULL,
   PRIMARY KEY (`id_admin`))
 ENGINE = InnoDB;
 
@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS `fibrosis_v07`.`doctor` (
   `activo` TINYINT NOT NULL DEFAULT 1,
   `nombre_doc` VARCHAR(45) NULL,
   `contrasena_doc` BLOB NOT NULL, -- VARCHAR(45) NULL,
-  `fecha_creacion` TIMESTAMP NULL,
+  `fecha_creacion` DATETIME NULL,
   `id_adminCreador` VARCHAR(10) NOT NULL,
   PRIMARY KEY (`id`),
   INDEX `id_adminCreador_idx` (`id_adminCreador` ASC) VISIBLE,
@@ -51,7 +51,7 @@ KEY_BLOCK_SIZE = 1;
 CREATE TABLE IF NOT EXISTS `fibrosis_v07`.`expediente` (
   `nss` VARCHAR(15) NOT NULL,
   `sexo` TINYINT NULL,
-  `fecha_creacion` TIMESTAMP NOT NULL,
+  `fecha_creacion` DATETIME NOT NULL,
   `fecha_nacimiento` DATETIME NULL,
   `id_docCreador` VARCHAR(10) NOT NULL,
   PRIMARY KEY (`nss`),
@@ -100,7 +100,7 @@ ENGINE=InnoDB;
 -- -----------------------------------------------------
 CREATE TABLE IF NOT EXISTS `fibrosis_v07`.`imagen` (
   `nss_exp` VARCHAR(15) NOT NULL,
-  `fecha_estudio` TIMESTAMP NOT NULL,
+  `fecha_estudio` DATETIME NOT NULL,
   `num_tomo` INT NOT NULL,
   `imagen` LONGBLOB NULL,
   PRIMARY KEY (`nss_exp`, `fecha_estudio`, `num_tomo`),
@@ -123,7 +123,7 @@ ENGINE = InnoDB;
 -- -----------------------------------------------------
 CREATE TABLE IF NOT EXISTS `fibrosis_v07`.`mascara` (
   `nss_exp` VARCHAR(15) NOT NULL,
-  `fecha_estudio` TIMESTAMP NOT NULL,
+  `fecha_estudio` DATETIME NOT NULL,
   `num_tomo` INT NOT NULL,
   `tipo` ENUM('automatica', 'manual') NOT NULL,
   `clase` ENUM('pulmon', 'fibrosis', 'fondo') NOT NULL,
@@ -155,8 +155,8 @@ ENGINE = InnoDB;
 CREATE TABLE IF NOT EXISTS `fibrosis_v07`.`modifica_doc_estudio` (
   `id_doc` VARCHAR(10) NOT NULL,
   `nss_exp` VARCHAR(15) NOT NULL,
-  `fecha_estudio` TIMESTAMP NOT NULL,
-  `fecha_ajuste_manual` TIMESTAMP NOT NULL,
+  `fecha_estudio` DATETIME NOT NULL,
+  `fecha_ajuste_manual` DATETIME NOT NULL,
   PRIMARY KEY (`id_doc`, `nss_exp`, `fecha_estudio`),
   INDEX `fecha_estudio_idx` (`fecha_estudio` ASC) VISIBLE,
   INDEX `fk_nss_exp_idx` (`nss_exp` ASC) VISIBLE,
@@ -177,6 +177,17 @@ CREATE TABLE IF NOT EXISTS `fibrosis_v07`.`modifica_doc_estudio` (
     ON UPDATE NO ACTION)
 ENGINE = InnoDB;
 
+-- ========= SEED (PURO SQL) =========
+-- IMPORTANTE: usa aquí una llave de DESARROLLO y pon la MISMA en tu backend (.env -> APP_ENCRYPTION_KEY).
+SET @APP_KEY := 'cambia_esta_llave';
+
+INSERT INTO admin (id_admin, nombre_admin, contrasena_admin, fecha_creacion, activo)
+VALUES ('A9856KIMU','AdminAdmin', AES_ENCRYPT('A9856KIMU', @APP_KEY), NOW(), 1)
+ON DUPLICATE KEY UPDATE nombre_admin=VALUES(nombre_admin), activo=VALUES(activo);
+
+INSERT INTO doctor (id, nombre_doc, contrasena_doc, id_adminCreador, fecha_creacion, activo)
+VALUES ('D8931NEDE','DoctorDoctor', AES_ENCRYPT('D8931NEDE', @APP_KEY), 'A9856KIMU', NOW(), 1)
+ON DUPLICATE KEY UPDATE nombre_doc=VALUES(nombre_doc), activo=VALUES(activo);
 
 SET SQL_MODE=@OLD_SQL_MODE;
 SET FOREIGN_KEY_CHECKS=@OLD_FOREIGN_KEY_CHECKS;
