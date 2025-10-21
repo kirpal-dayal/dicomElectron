@@ -5,6 +5,9 @@ import { useNavigate } from 'react-router-dom';
 
 import { descargarReporteGeneral } from '../utils/reportes/descargarReportes';
 
+import logoBlanco from '../assets/images/logo_graf_blanco.svg'; //blanco
+import '../styles/styles.css';
+
 export default function DoctorView() {
   const navigate = useNavigate()
   const stored = JSON.parse(localStorage.getItem('user') || '{}')
@@ -153,10 +156,6 @@ useEffect(() => {
         * { box-sizing:border-box; margin:0; padding:0; }
         body { font-family:'Segoe UI',sans-serif; background:#f0f2f5; color:#333; }
 
-        .navbar {
-          display:flex; justify-content:space-between; align-items:center;
-          background:#1e293b; padding:1rem 2rem;
-        }
         .navbar h1 { color:#fff; font-size:2rem; }
         .nav-buttons { display:flex; gap:1rem; }
         .nav-buttons .btn {
