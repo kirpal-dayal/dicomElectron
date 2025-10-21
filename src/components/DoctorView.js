@@ -5,6 +5,10 @@ import { useNavigate } from 'react-router-dom';
 
 import { descargarReporteGeneral } from '../utils/reportes/descargarReportes';
 
+import logoBlanco from '../assets/images/logo_graf_blanco.svg'; //blanco
+import '../styles/styles.css';
+import '../styles/variables.css';
+
 export default function DoctorView() {
   const navigate = useNavigate()
   const stored = JSON.parse(localStorage.getItem('user') || '{}')
@@ -153,10 +157,6 @@ useEffect(() => {
         * { box-sizing:border-box; margin:0; padding:0; }
         body { font-family:'Segoe UI',sans-serif; background:#f0f2f5; color:#333; }
 
-        .navbar {
-          display:flex; justify-content:space-between; align-items:center;
-          background:#1e293b; padding:1rem 2rem;
-        }
         .navbar h1 { color:#fff; font-size:2rem; }
         .nav-buttons { display:flex; gap:1rem; }
         .nav-buttons .btn {
@@ -167,11 +167,12 @@ useEffect(() => {
         .nav-buttons .btn:hover { background:#2563eb; }
 
         .container {
-          max-width:1200px; margin:2rem auto; padding:0 1rem;
+          max-width:1200px; margin:var(--height-navbar) auto 2rem; padding:0 1rem, text-align:center;
         }
         .table-card {
           background:#fff; border-radius:8px; padding:1.5rem;
           box-shadow:0 4px 12px rgba(0,0,0,0.1);
+          text-align:center;
         }
         .table-card h2 {
           font-size:1.75rem; color:#111827; margin-bottom:.75rem;
@@ -237,7 +238,7 @@ useEffect(() => {
 
       {/* Navbar */}
       <header className="navbar">
-        <h1>{username}</h1>
+        <img src={logoBlanco} alt="Logo" style={{ display: 'block', margin: '10px', height: '90%'}} />
         <div className="nav-buttons">
           <button className="btn" onClick={() => setShowForm(true)}>
             Añadir Paciente
@@ -252,8 +253,9 @@ useEffect(() => {
 
       <div className="container">
         <div className="table-card">
-          <h2>Pacientes Registrados</h2>
-
+          <h1>Bienvenido, {username}</h1>
+          <p>Aquí puedes gestionar los expedientes de tus pacientes.</p>
+          <br />
           {/* Barra de búsqueda */}
           <div className="search-bar">
             <input
