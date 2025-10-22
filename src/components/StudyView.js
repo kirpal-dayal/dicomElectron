@@ -140,11 +140,11 @@ export default function StudyView() {
 
   const [windowWidth, setWindowWidth] = useState(1500);
   const [windowCenter, setWindowCenter] = useState(-600);
+  const [currentPreset, setCurrentPreset] = useState(null);
 
   // Estado de volcado/segmentación y flag para evitar repetir refresco
   const [status, setStatus] = useState(null);
   const [hasSyncedAfterReady, setHasSyncedAfterReady] = useState(false);
-
 
   // ---------- refs “frescos” para handlers ----------
   const layersRef = useRef(layers);
@@ -178,8 +178,13 @@ export default function StudyView() {
     if (preset === "bone") { wl =  300; ww = 1500; }
     setWindowCenter(wl);
     setWindowWidth(ww);
+    setCurrentPreset(preset);        // <<< NUEVO
     applyVOI(viewerRef.current, wl, ww);
   };
+
+  useEffect(() => {
+  if (currentPreset == null) setPreset("lung");
+  }, []);
 
   // ---------- Cargar lista DICOM ----------
   useEffect(() => {
@@ -378,7 +383,7 @@ useEffect(() => {
             nss,
             fechaSQL,
             auto.total,
-            "Volumen automático (modelo)",
+            null,
             false // manual = false ⇒ volumen_automatico
           );
           autoSavedRef.current = true;
@@ -460,13 +465,7 @@ useEffect(() => {
       const volumenGlobal = calcularVolumenEditableGlobal(updated, px, dz);
       setEditableVolumen(volumenGlobal);
 
-      await enviarVolumenABackend(
-        nss,
-        fechaSQL,
-        (volumenGlobal?.editableTotalVolume ?? null),
-        "Ajuste manual en StudyView",
-        true // manual = true ⇒ volumen_manual
-      );
+    await enviarVolumenABackend(nss, fechaSQL, volumenGlobal?.editableTotalVolume ?? null, null, true);
     } catch (err) {
       console.error("Error al guardar edición/volumen:", err);
     }
@@ -876,10 +875,42 @@ useEffect(() => {
               <div style={{ fontWeight: "bold", marginBottom: 6 }}>Visualización HU (WW/WL)</div>
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
-                <button className="btn" onClick={() => setPreset("lung")}>Pulmón</button>
-                <button className="btn" onClick={() => setPreset("ggo")}>Fibrosis/Vidrio</button>
-                <button className="btn" onClick={() => setPreset("soft")}>Partes blandas</button>
-                <button className="btn" onClick={() => setPreset("bone")}>Hueso</button>
+                <button
+                  type="button"
+                  className={`btn preset ${currentPreset === "lung" ? "active" : ""}`}
+                  aria-pressed={currentPreset === "lung"}
+                  onClick={() => setPreset("lung")}
+                >
+                  Pulmón
+                </button>
+
+                <button
+                  type="button"
+                  className={`btn preset ${currentPreset === "ggo" ? "active" : ""}`}
+                  aria-pressed={currentPreset === "ggo"}
+                  onClick={() => setPreset("ggo")}
+                >
+                  Fibrosis/Vidrio
+                </button>
+
+                <button
+                  type="button"
+                  className={`btn preset ${currentPreset === "soft" ? "active" : ""}`}
+                  aria-pressed={currentPreset === "soft"}
+                  onClick={() => setPreset("soft")}
+                >
+                  Partes blandas
+                </button>
+
+                <button
+                  type="button"
+                  className={`btn preset ${currentPreset === "bone" ? "active" : ""}`}
+                  aria-pressed={currentPreset === "bone"}
+                  onClick={() => setPreset("bone")}
+                >
+                  Hueso
+                </button>
+
               </div>
 
               <div style={{ marginBottom: 6 }}>
@@ -982,27 +1013,59 @@ useEffect(() => {
       )}
 
       <style>{`
-.fullscreen-overlay {
-  position: fixed;
-  top: 0; left: 0;
-  width: 100vw; height: 100vh;
-  display: flex; flex-direction: row;
-  gap: 0; background: #000; z-index: 9999;
-}
-.sidebar-panel {
-  width: 300px; background: #111; color: #fff;
-  padding: 1rem; display: flex; flex-direction: column;
-  height: 100vh; overflow-y: auto; box-shadow: 2px 0 6px rgba(0,0,0,0.4);
-}
-.main-panel { flex: 1; position: relative; height: 100vh; }
-.sidebar-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
-.fullscreen-viewer { width: 100%; height: 100%; background: black; border-radius: 12px; }
-.overlay-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: auto; }
+        .fullscreen-overlay {
+          position: fixed;
+          top: 0; left: 0;
+          width: 100vw; height: 100vh;
+          display: flex; flex-direction: row;
+          gap: 0; background: #000; z-index: 9999;
+        }
+        .sidebar-panel {
+          width: 300px; background: #111; color: #fff;
+          padding: 1rem; display: flex; flex-direction: column;
+          height: 100vh; overflow-y: auto; box-shadow: 2px 0 6px rgba(0,0,0,0.4);
+        }
+        .main-panel { flex: 1; position: relative; height: 100vh; }
+        .sidebar-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
+        .fullscreen-viewer { width: 100%; height: 100%; background: black; border-radius: 12px; }
+        .overlay-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: auto; }
+        input[type="range"] { width: 100%; }
+
+/* base */
 .btn {
   padding: 0.5rem 0.7rem; background: #0ea5e9; color: #fff; border: none;
   border-radius: 6px; cursor: pointer; font-size: 0.85rem;
 }
-input[type="range"] { width: 100%; }
+
+/* estilo de presets */
+.btn.preset {
+  background: #0ea5e9;  /* mismo que .btn */
+  opacity: 0.85;
+  transition: transform 0.05s ease, box-shadow 0.15s ease, opacity 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+  border: 2px solid transparent;   /* para el foco activo */
+}
+.btn.preset:hover {
+  opacity: 1;
+}
+
+/* ACTIVO (dos selectores para asegurar) */
+.btn.preset.active,
+.btn.preset[aria-pressed="true"] {
+  opacity: 1;
+  background: #0369a1;             /* más oscuro para que se note */
+  border-color: #22d3ee;           /* cian */
+  box-shadow: 0 0 0 2px rgba(34,211,238,.25), 0 6px 14px rgba(0,0,0,.25);
+  transform: translateY(-1px);
+}
+
+/* disabled coherente, por si acaso */
+.btn:disabled {
+  opacity: .6;
+  cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
+}
+
       `}</style>
     </>
   );

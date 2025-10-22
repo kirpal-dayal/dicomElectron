@@ -5,8 +5,8 @@ import UserView from './components/UserView';
 import DoctorView from './components/DoctorView';
 import AdminView from './components/AdminView';
 import ViewPatient from './components/ViewPatient';
-import AnalisisDetallado from './components/AnalisisDetallado'; // Nueva vista
-import StudyView from './components/StudyView'; // Nueva vista de estudio
+import AnalisisDetallado from './components/AnalisisDetallado'; 
+import StudyView from './components/StudyView'; 
 
 import './App.css';
 import RenderPulmon from './components/RenderPulmon';

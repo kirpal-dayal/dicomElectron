@@ -203,7 +203,7 @@ function ClinicalForm({ closeForm, addRecord }) {
           </select>
         </label>
 
-        {/* 🔥 Botones centrados y estilizados */}
+        {/*  Botones centrados y estilizados */}
         <div className="form-buttons" style={{
           display: 'flex',
           justifyContent: 'center',

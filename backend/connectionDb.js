@@ -38,7 +38,7 @@ const db = mysql.createPool({
   host: DB_HOST,
   port: Number(DB_PORT),
   user: DB_USER,
-  password: DB_PASS,   // << sin DB_PASSW
+  password: DB_PASS,  
   database: DB_NAME,
   waitForConnections: true,
   connectionLimit: 10,

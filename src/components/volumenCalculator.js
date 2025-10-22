@@ -221,7 +221,6 @@ export async function enviarVolumenABackend(
   nss,
   fechaSQL,
   volumenData,        // puede ser número o un objeto con editableTotalVolume o total_volume_ml
-  descripcion = null,
   manual = false
 ) {
   if (!nss) throw new Error("enviarVolumenABackend: falta NSS");

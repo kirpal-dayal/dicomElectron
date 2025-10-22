@@ -98,6 +98,10 @@ function toSQLDateString(fecha) {
   );
 }
 
+function getFechaSQLParaAPI(s) {
+  return typeof s.fecha === "string" ? s.fecha : toSQLDateString(s.fecha);
+  }
+
 export default function ViewPatient() {
   const { id: nss } = useParams();
   const navigate = useNavigate();
@@ -109,7 +113,7 @@ export default function ViewPatient() {
   const [status, setStatus] = useState(null);
 
   const [showDescripcionModal, setShowDescripcionModal] = useState(false);
-  const [descripcionActual, setDescripcionActual] = useState("");
+  // const [descripcionActual, setDescripcionActual] = useState("");
 
   // estado para diagnóstico
   const [showDiagnosticoModal, setShowDiagnosticoModal] = useState(false);
@@ -234,6 +238,24 @@ const fetchRecord = async () => {
     setLoading(false);
   }
 };
+// Releer estudios al volver del visor / cambiar de pestaña / back-forward
+useEffect(() => {
+  const onFocus = () => fetchRecord();
+  const onVisibility = () => {
+    if (document.visibilityState === "visible") fetchRecord();
+  };
+  const onPopState = () => fetchRecord(); // opcional: navegación del historial
+
+  window.addEventListener("focus", onFocus);
+  document.addEventListener("visibilitychange", onVisibility);
+  window.addEventListener("popstate", onPopState);
+
+  return () => {
+    window.removeEventListener("focus", onFocus);
+    document.removeEventListener("visibilitychange", onVisibility);
+    window.removeEventListener("popstate", onPopState);
+  };
+}, [nss]); // si cambia el paciente, re-atacheamos los listeners
 
 
   // Montaje
@@ -301,14 +323,22 @@ const fetchRecord = async () => {
                 disabled
               />
             </div>
-            <div className="actions">
-              <button className="btn" onClick={() => descargarReportePaciente(record.nss)}>
-                Descargar reporte (.xlsx) 📋
-              </button>
-              <button className="btn" onClick={() => navigate(-1)}>
-                Volver
-              </button>
-            </div>
+                <div className="actions" style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+                  <button
+                    className="btn"
+                    style={{ marginTop: 8 }}
+                    onClick={() => descargarReportePaciente(record.nss)}
+                  >
+                    Descargar reporte (.xlsx) 📋
+                  </button>
+                  <button
+                    className="btn"
+                    style={{ marginTop: 8 }}
+                    onClick={() => navigate(-1)}
+                  >
+                    Volver
+                  </button>
+                </div>
           </section>
         </div>
 
@@ -359,13 +389,13 @@ const fetchRecord = async () => {
                   <button
                     className="btn"
                     title={s.descripcion || "-"}
-                    onClick={() => {
-                      setDescripcionActual(s.descripcion || "");
+                    onClick={() => {     
                       setShowDescripcionModal({
-                        open: true,
-                        nss_expediente: record.nss,
-                        fecha: toSQLDateString(s.fecha),
-                      });
+                      open: true,
+                      nss_expediente: record.nss,
+                      fecha: getFechaSQLParaAPI(s),   // <- EXACTO como en BD
+                      descripcion: s.descripcion ?? "", // se la pasamos directo
+                    });
                     }}
                     style={{ marginTop: 8 }}
                   >
@@ -377,7 +407,7 @@ const fetchRecord = async () => {
                       title={s.diagnostico || "-"}
                       onClick={() => {
                         const value = s.diagnostico ?? "";
-                        const fechaSQL = typeof s.fecha === "string" ? s.fecha : toSQLDateString(s.fecha); 
+                        const fechaSQL = getFechaSQLParaAPI(s);
                         setShowDiagnosticoModal({
                           open: true,
                           nss_expediente: record.nss,
@@ -409,7 +439,7 @@ const fetchRecord = async () => {
                     className="btn"
                     onClick={() =>
                       navigate(
-                        `/estudio/${record.nss}/${encodeURIComponent(toSQLDateString(s.fecha))}` +
+                        `/estudio/${record.nss}/${encodeURIComponent(getFechaSQLParaAPI(s))}` +
                           (s.fechaDicomSQL ? `?fechaDicom=${encodeURIComponent(s.fechaDicomSQL)}` : "")
                       )
                     }
@@ -468,7 +498,8 @@ const fetchRecord = async () => {
         <div>
           {showDescripcionModal && (
             <DescripcionEstudio
-              descripcion={descripcionActual}
+              key={`${showDescripcionModal.nss_expediente}-${showDescripcionModal.fecha}`} 
+              descripcion={showDescripcionModal.descripcion ?? ""}
               nss_expediente={showDescripcionModal.nss_expediente}
               fecha={showDescripcionModal.fecha}
               onClose={() => setShowDescripcionModal(false)}
