@@ -73,34 +73,86 @@ router.delete('/expedientes/:nss', (req, res) => {
  * ========================= */
 
 // POST /api/:nss/studies  -> crear/actualizar estudio
+// POST /api/:nss/studies  -> crear/actualizar estudio (sin pisar con NULL)
 router.post('/:nss/studies', (req, res) => {
   const { nss } = req.params;
-  const {
-    fecha,                 // "YYYY-MM-DD HH:mm:ss"
-    descripcion = null,
-    volumen_automatico = null,
-    volumen_manual = null
-  } = req.body;
+
+  // Normalizamos: si la clave NO viene, no la tocamos; si viene null/undefined => COALESCE la ignora
+  const fecha = req.body?.fecha; // "YYYY-MM-DD HH:mm:ss"
+  const descripcion = (Object.prototype.hasOwnProperty.call(req.body, 'descripcion'))
+    ? req.body.descripcion
+    : undefined;
+  const volumen_automatico = (Object.prototype.hasOwnProperty.call(req.body, 'volumen_automatico'))
+    ? req.body.volumen_automatico
+    : undefined;
+  const volumen_manual = (Object.prototype.hasOwnProperty.call(req.body, 'volumen_manual'))
+    ? req.body.volumen_manual
+    : undefined;
 
   if (!fecha) return res.status(400).send('Falta la fecha del estudio');
 
-  const sql = `
-    INSERT INTO estudio (fecha, nss_expediente, descripcion, volumen_automatico, volumen_manual)
-    VALUES (?, ?, ?, ?, ?)
-    ON DUPLICATE KEY UPDATE
-      descripcion = VALUES(descripcion),
-      volumen_automatico = COALESCE(VALUES(volumen_automatico), volumen_automatico),
-      volumen_manual     = COALESCE(VALUES(volumen_manual), volumen_manual)
+  // 1) UPDATE primero: COALESCE(NULL, columna) => conserva valor existente
+  const updSql = `
+    UPDATE estudio
+    SET
+      descripcion        = COALESCE(?, descripcion),
+      volumen_automatico = COALESCE(?, volumen_automatico),
+      volumen_manual     = COALESCE(?, volumen_manual)
+    WHERE nss_expediente = ? AND fecha = ?
   `;
 
-  db.query(sql, [fecha, nss, descripcion, volumen_automatico, volumen_manual], (err) => {
+  // Para los campos "no enviados", pasamos NULL => COALESCE los ignora
+  const updParams = [
+    (descripcion !== undefined) ? descripcion : null,
+    (volumen_automatico !== undefined) ? volumen_automatico : null,
+    (volumen_manual !== undefined) ? volumen_manual : null,
+    nss,
+    fecha,
+  ];
+
+  db.query(updSql, updParams, (err, result) => {
     if (err) {
-      console.error('[studies][POST] DB error:', err);
-      return res.status(500).send('Error al crear/actualizar estudio');
+      console.error('[studies][POST][UPDATE] DB error:', err);
+      return res.status(500).send('Error al actualizar estudio');
     }
-    res.status(201).send('Estudio creado/actualizado');
+
+    if (result.affectedRows > 0) {
+      // Ya existía y actualizamos sin pisar con NULL
+      return res.status(200).send('Estudio actualizado');
+    }
+
+    // 2) No existía: solo insertamos si hay algo que valga la pena (evita fila "vacía" con NULLs)
+    const hayDescripcion = (descripcion !== undefined && descripcion !== null);
+    const hayVolAuto = (volumen_automatico !== undefined && volumen_automatico !== null);
+    const hayVolManual = (volumen_manual !== undefined && volumen_manual !== null);
+
+    if (!hayDescripcion && !hayVolAuto && !hayVolManual) {
+      // No hay nada para insertar; evitamos crear fila con NULLs
+      return res.status(204).send(); // No Content
+    }
+
+    const insSql = `
+      INSERT INTO estudio (fecha, nss_expediente, descripcion, volumen_automatico, volumen_manual)
+      VALUES (?, ?, ?, ?, ?)
+    `;
+    const insParams = [
+      fecha,
+      nss,
+      hayDescripcion ? descripcion : null,
+      hayVolAuto ? volumen_automatico : null,
+      hayVolManual ? volumen_manual : null,
+    ];
+
+    db.query(insSql, insParams, (err2) => {
+      if (err2) {
+        console.error('[studies][POST][INSERT] DB error:', err2);
+        return res.status(500).send('Error al crear estudio');
+      }
+      return res.status(201).send('Estudio creado');
+    });
   });
 });
+
 
 // GET /api/expedientes/:nss -> trae un expediente + todos sus estudios
 router.get('/expedientes/:nss', (req, res) => {

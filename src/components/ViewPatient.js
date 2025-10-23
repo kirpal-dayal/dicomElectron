@@ -18,7 +18,7 @@ import RenderPulmon from "./RenderPulmon";
 import { descargarReportePaciente } from "../utils/reportes/descargarReportes";
 
 // Endpoints de edición de campos por estudio
-const diagnosticoEndpoint = "/api/estudios/diagnostico"; 
+const diagnosticoEndpoint = "/api/estudios/diagnostico";
 
 // ---- Cornerstone config (WADO-URI) ----
 cornerstoneWADOImageLoader.external.cornerstone = cornerstone;
@@ -47,28 +47,41 @@ function DicomThumbnail({ imageId }) {
     let cancelled = false;
 
     const isEnabled = () => {
-      try { cornerstone.getEnabledElement(el); return true; } catch { return false; }
+      try {
+        cornerstone.getEnabledElement(el);
+        return true;
+      } catch {
+        return false;
+      }
     };
-    if (!isEnabled()) { try { cornerstone.enable(el); } catch {} }
+    if (!isEnabled()) {
+      try {
+        cornerstone.enable(el);
+      } catch {}
+    }
 
     cornerstone
       .loadAndCacheImage(imageId)
       .then((image) => {
         if (cancelled) return;
-        try { if (isEnabled()) cornerstone.displayImage(el, image); } catch {}
+        try {
+          if (isEnabled()) cornerstone.displayImage(el, image);
+        } catch {}
       })
       .catch(() => {});
 
     return () => {
       cancelled = true;
-      try { if (isEnabled()) cornerstone.disable(el); } catch {}
+      try {
+        if (isEnabled()) cornerstone.disable(el);
+      } catch {}
     };
   }, [imageId]);
 
   return (
     <div
       ref={elementRef}
-      style={{ width:160, height:160, background:"black", borderRadius:6, margin:"0 auto" }}
+      style={{ width: 160, height: 160, background: "black", borderRadius: 6, margin: "0 auto" }}
     />
   );
 }
@@ -79,7 +92,9 @@ function toSQLFromDicomDateTime(dateStr, timeStr) {
   const yyyy = dateStr.slice(0, 4);
   const mm = dateStr.slice(4, 6);
   const dd = dateStr.slice(6, 8);
-  let hh = "00", mi = "00", ss = "00";
+  let hh = "00",
+    mi = "00",
+    ss = "00";
   if (timeStr && timeStr.length >= 2) {
     hh = timeStr.slice(0, 2) || "00";
     mi = timeStr.slice(2, 4) || "00";
@@ -93,9 +108,15 @@ function toSQLDateString(fecha) {
   const d = typeof fecha === "string" ? new Date(fecha) : fecha;
   if (isNaN(d)) return String(fecha);
   return (
-    `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")} ` +
-    `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}:${String(d.getSeconds()).padStart(2,"0")}`
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")} ` +
+    `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}:${String(
+      d.getSeconds()
+    ).padStart(2, "0")}`
   );
+}
+
+function getFechaSQLParaAPI(s) {
+  return typeof s.fecha === "string" ? s.fecha : toSQLDateString(s.fecha);
 }
 
 export default function ViewPatient() {
@@ -109,13 +130,14 @@ export default function ViewPatient() {
   const [status, setStatus] = useState(null);
 
   const [showDescripcionModal, setShowDescripcionModal] = useState(false);
-  const [descripcionActual, setDescripcionActual] = useState("");
-
-  // estado para diagnóstico
   const [showDiagnosticoModal, setShowDiagnosticoModal] = useState(false);
 
   // Overlay 3D: si tiene folder => se muestra full-screen
   const [show3DForFolder, setShow3DForFolder] = useState(null);
+
+  // --- Guard para el file picker ---
+  const pickingZipRef = useRef(false);
+  const zipInputRef = useRef(null);
 
   // Polling de estado del volcado/segmentación cuando el 3D está abierto
   useEffect(() => {
@@ -138,103 +160,120 @@ export default function ViewPatient() {
 
     setStatus(null);
     poll();
-    return () => { canceled = true; };
+    return () => {
+      canceled = true;
+    };
   }, [show3DForFolder]);
 
-  // Al terminar el volcado, refrescar estudios para ver cambios (máscaras/volumen visible en tarjetas)
+  // Al terminar el volcado, refrescar estudios
   useEffect(() => {
     if (status?.ready) {
       fetchRecord();
     }
   }, [status?.ready]);
 
-// Cargar expediente + estudios (tolerante a 404)
-const fetchRecord = async () => {
-  try {
-    setLoading(true);
-    setError("");
-
-    // 1) Traer datos del expediente (para NSS, fecha_nacimiento, sexo, etc.)
-    let paciente = { nss };
+  // Cargar expediente + estudios (tolerante a 404)
+  const fetchRecord = async () => {
     try {
-      const { data: exp } = await api.get(`/api/expedientes/${nss}`);
-      // Ajuste mínimo: si el backend devuelve fecha_nacimiento como string, la dejamos tal cual.
-      paciente = { ...exp, nss }; // garantizamos nss
-    } catch (e) {
-      // Si 404 u otro error al leer el expediente, seguimos con { nss } para que por lo menos
-      // se muestre el NSS y la tarjeta de subir ZIP. Solo rompemos en errores “fuertes”.
-      if (e?.response?.status && e.response.status !== 404) throw e;
-    }
+      setLoading(true);
+      setError("");
 
-    // 2) Traer los estudios del paciente
-    let studiesArr = [];
-    try {
-      const { data } = await api.get(`/api/estudios/${nss}`);
-      studiesArr = Array.isArray(data) ? data : [];
-    } catch (e) {
-      // Si no hay estudios, el backend puede responder 404. Lo tratamos como lista vacía.
-      if (e?.response?.status === 404) {
-        studiesArr = [];
-      } else {
-        throw e;
+      // 1) Datos del expediente
+      let paciente = { nss };
+      try {
+        const { data: exp } = await api.get(`/api/expedientes/${nss}`);
+        paciente = { ...exp, nss };
+      } catch (e) {
+        if (e?.response?.status && e.response.status !== 404) throw e;
       }
-    }
 
-    console.log("exp.studies (raw):", studiesArr?.slice?.(0, 3));
-
-    // 3) Enriquecer con thumbnail DICOM, folder y fechaMostrar
-    const studiesWithThumbs = await Promise.all(
-      studiesArr.map(async (s) => {
-        // Si ya viene string tipo "YYYY-MM-DD HH:MM:SS", úsalo tal cual.
-        const fechaBase = typeof s.fecha === "string" ? s.fecha : toSQLDateString(s.fecha);
-        const safeFecha = (fechaBase || "").replace(/[: ]/g, "_");
-        const folder = `${paciente.nss}_${safeFecha}`;
-
-        let dicomUrl = null;
-        try {
-          const { data: files } = await api.get(`/api/image/dicom-list/${folder}`);
-          if (Array.isArray(files) && files.length) {
-            const mid = files[Math.floor(files.length / 2)];
-            dicomUrl = wado(`/api/image/dicom/${folder}/${encodeURIComponent(mid)}`);
-          }
-        } catch {
-          // sin DICOMs/thumbnail no es fatal
+      // 2) Estudios
+      let studiesArr = [];
+      try {
+        const { data } = await api.get(`/api/estudios/${nss}`);
+        studiesArr = Array.isArray(data) ? data : [];
+      } catch (e) {
+        if (e?.response?.status === 404) {
+          studiesArr = [];
+        } else {
+          throw e;
         }
+      }
 
-        // Intento de leer fecha de DICOM (opcional)
-        let fechaDicomSQL = null;
-        if (dicomUrl) {
+      // 3) Enriquecer con thumbnail DICOM, folder y fechaMostrar
+      const studiesWithThumbs = await Promise.all(
+        studiesArr.map(async (s) => {
+          const fechaBase = typeof s.fecha === "string" ? s.fecha : toSQLDateString(s.fecha);
+          const safeFecha = (fechaBase || "").replace(/[: ]/g, "_");
+          const folder = `${paciente.nss}_${safeFecha}`;
+
+          let dicomUrl = null;
           try {
-            const image = await cornerstone.loadAndCacheImage(dicomUrl);
-            const gs = cornerstone.metaData.get("generalStudyModule", dicomUrl) || {};
-            let studyDate = gs.studyDate;
-            let studyTime = gs.studyTime;
-            if ((!studyDate || studyDate.length < 8) && image?.data?.string) {
-              const dsString = image.data.string.bind(image.data);
-              studyDate = dsString?.("x00080020") || studyDate;
-              studyTime = dsString?.("x00080030") || studyTime;
+            const { data: files } = await api.get(`/api/image/dicom-list/${folder}`);
+            if (Array.isArray(files) && files.length) {
+              const mid = files[Math.floor(files.length / 2)];
+              dicomUrl = wado(`/api/image/dicom/${folder}/${encodeURIComponent(mid)}`);
             }
-            fechaDicomSQL = toSQLFromDicomDateTime(studyDate, studyTime);
           } catch {
-            // si no hay metadata, seguimos
+            // sin DICOMs/thumbnail no es fatal
           }
-        }
 
-        const fechaMostrar = fechaDicomSQL || s.fecha || fechaBase;
-        return { ...s, folder, dicomUrl, fechaMostrar, fechaDicomSQL };
-      })
-    );
+          // Intento de leer fecha de DICOM (opcional)
+          let fechaDicomSQL = null;
+          if (dicomUrl) {
+            try {
+              const image = await cornerstone.loadAndCacheImage(dicomUrl);
+              const gs = cornerstone.metaData.get("generalStudyModule", dicomUrl) || {};
+              let studyDate = gs.studyDate;
+              let studyTime = gs.studyTime;
+              if ((!studyDate || studyDate.length < 8) && image?.data?.string) {
+                const dsString = image.data.string.bind(image.data);
+                studyDate = dsString?.("x00080020") || studyDate;
+                studyTime = dsString?.("x00080030") || studyTime;
+              }
+              fechaDicomSQL = toSQLFromDicomDateTime(studyDate, studyTime);
+            } catch {
+              // si no hay metadata, seguimos
+            }
+          }
 
-    // 4) Guardar en estado un solo objeto record que el JSX espera
-    setRecord({ ...paciente, studies: studiesWithThumbs });
-  } catch (e) {
-    console.error(e);
-    setError("No se pudo cargar el expediente o sus estudios");
-  } finally {
-    setLoading(false);
-  }
-};
+          const fechaMostrar = fechaDicomSQL || s.fecha || fechaBase;
+          return { ...s, folder, dicomUrl, fechaMostrar, fechaDicomSQL };
+        })
+      );
 
+      // 4) Guardar en estado
+      setRecord({ ...paciente, studies: studiesWithThumbs });
+    } catch (e) {
+      console.error(e);
+      setError("No se pudo cargar el expediente o sus estudios");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Releer estudios al volver del visor / cambiar de pestaña / back-forward
+  useEffect(() => {
+    const onFocus = () => {
+      if (!pickingZipRef.current) fetchRecord();
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "visible" && !pickingZipRef.current) {
+        fetchRecord();
+      }
+    };
+    const onPopState = () => fetchRecord(); // opcional
+
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("popstate", onPopState);
+
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("popstate", onPopState);
+    };
+  }, [nss]);
 
   // Montaje
   useEffect(() => {
@@ -246,10 +285,27 @@ const fetchRecord = async () => {
     fetchRecord();
   }, [nss, navigate]);
 
+  // Abre el file picker con guard y liberación segura (aunque se cancele)
+  const openZipPicker = () => {
+    pickingZipRef.current = true;
+    // Al volver el foco desde el diálogo del sistema, liberamos el guard
+    const releaseOnFocus = () => {
+      // pequeño delay para evitar carreras con otros listeners de focus
+      setTimeout(() => {
+        pickingZipRef.current = false;
+      }, 300);
+    };
+    window.addEventListener("focus", releaseOnFocus, { once: true });
+    zipInputRef.current?.click();
+  };
+
   // Subir ZIP con DICOMs
   const handleZipChange = async (e) => {
     const file = e.target.files?.[0];
-    if (!file?.name.endsWith(".zip")) return alert("Selecciona un archivo .zip válido");
+    if (!file?.name.endsWith(".zip")) {
+      alert("Selecciona un archivo .zip válido");
+      return;
+    }
 
     const fd = new FormData();
     fd.append("zipFile", file);
@@ -263,12 +319,20 @@ const fetchRecord = async () => {
     } catch (e) {
       console.error(e);
       alert("Error al subir ZIP");
+    } finally {
+      // por si acaso (si hubo cambio, esto también corre)
+      pickingZipRef.current = false;
+      // limpiar el valor del input para permitir re-subir el mismo archivo si se desea
+      if (zipInputRef.current) zipInputRef.current.value = "";
     }
   };
 
   // Loading / Error
   if (loading) return <div style={{ padding: "2rem", textAlign: "center" }}>Cargando expediente…</div>;
-  if (error || !record) return <div style={{ padding: "2rem", textAlign: "center", color: "red" }}>{error || "Error desconocido"}</div>;
+  if (error || !record)
+    return (
+      <div style={{ padding: "2rem", textAlign: "center", color: "red" }}>{error || "Error desconocido"}</div>
+    );
 
   return (
     <div>
@@ -286,26 +350,19 @@ const fetchRecord = async () => {
               <label>Fecha de Nacimiento</label>
               <input
                 type="date"
-                value={
-                  record?.fecha_nacimiento
-                    ? new Date(record.fecha_nacimiento).toISOString().split("T")[0]
-                    : ""
-                }
+                value={record?.fecha_nacimiento ? new Date(record.fecha_nacimiento).toISOString().split("T")[0] : ""}
                 disabled
               />
             </div>
             <div className="form-group">
               <label>Sexo</label>
-              <input
-                value={record.sexo === 1 ? "Hombre" : record.sexo === 2 ? "Mujer" : "Otro"}
-                disabled
-              />
+              <input value={record.sexo === 1 ? "Hombre" : record.sexo === 2 ? "Mujer" : "Otro"} disabled />
             </div>
-            <div className="actions">
-              <button className="btn" onClick={() => descargarReportePaciente(record.nss)}>
+            <div className="actions" style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+              <button className="btn" style={{ marginTop: 8 }} onClick={() => descargarReportePaciente(record.nss)}>
                 Descargar reporte (.xlsx) 📋
               </button>
-              <button className="btn" onClick={() => navigate(-1)}>
+              <button className="btn" style={{ marginTop: 8 }} onClick={() => navigate(-1)}>
                 Volver
               </button>
             </div>
@@ -342,9 +399,16 @@ const fetchRecord = async () => {
                   ) : (
                     <div
                       style={{
-                        width: 160, height: 160, backgroundColor: "#eee",
-                        display: "flex", justifyContent: "center", alignItems: "center",
-                        color: "#666", fontWeight: "bold", borderRadius: 6, margin: "0 auto",
+                        width: 160,
+                        height: 160,
+                        backgroundColor: "#eee",
+                        display: "flex",
+                        justifyContent: "center",
+                        alignItems: "center",
+                        color: "#666",
+                        fontWeight: "bold",
+                        borderRadius: 6,
+                        margin: "0 auto",
                       }}
                     >
                       Sin imagen
@@ -360,11 +424,11 @@ const fetchRecord = async () => {
                     className="btn"
                     title={s.descripcion || "-"}
                     onClick={() => {
-                      setDescripcionActual(s.descripcion || "");
                       setShowDescripcionModal({
                         open: true,
                         nss_expediente: record.nss,
-                        fecha: toSQLDateString(s.fecha),
+                        fecha: getFechaSQLParaAPI(s), // EXACTO como en BD
+                        descripcion: s.descripcion ?? "", // se la pasamos directo
                       });
                     }}
                     style={{ marginTop: 8 }}
@@ -372,33 +436,47 @@ const fetchRecord = async () => {
                     Descripción ✏️
                   </button>
 
-                    <button
-                      className="btn"
-                      title={s.diagnostico || "-"}
-                      onClick={() => {
-                        const value = s.diagnostico ?? "";
-                        const fechaSQL = typeof s.fecha === "string" ? s.fecha : toSQLDateString(s.fecha); 
-                        setShowDiagnosticoModal({
-                          open: true,
-                          nss_expediente: record.nss,
-                          fecha: fechaSQL,  
-                          value,
-                        });
-                      }}
-                      style={{ marginTop: 8 }}
-                    >
-                      Diagnóstico 🩺
-                    </button>
+                  <button
+                    className="btn"
+                    title={s.diagnostico || "-"}
+                    onClick={() => {
+                      const value = s.diagnostico ?? "";
+                      const fechaSQL = getFechaSQLParaAPI(s);
+                      setShowDiagnosticoModal({
+                        open: true,
+                        nss_expediente: record.nss,
+                        fecha: fechaSQL,
+                        value,
+                      });
+                    }}
+                    style={{ marginTop: 8 }}
+                  >
+                    Diagnóstico 🩺
+                  </button>
 
                   {/* Barra de progreso (solo si el overlay 3D de este estudio está abierto) */}
                   {show3DForFolder === s.folder && status && !status.ready && (
-                    <div style={{padding:'1rem', textAlign:'center', opacity:0.8}}>
-                      {status.estado === 'segmenting' && 'Segmentando…'}
-                      {status.estado === 'dumping' && 'Guardando resultados…'}
-                      {!status.estado && 'Procesando…'}
-                      {typeof status.progreso === 'number' && (
-                        <div style={{width:280, height:8, margin:'8px auto 0', background:'#eee', borderRadius:6, overflow:'hidden'}}>
-                          <div style={{width:`${Math.max(0,Math.min(100,status.progreso))}%`, height:'100%'}} />
+                    <div style={{ padding: "1rem", textAlign: "center", opacity: 0.8 }}>
+                      {status.estado === "segmenting" && "Segmentando…"}
+                      {status.estado === "dumping" && "Guardando resultados…"}
+                      {!status.estado && "Procesando…"}
+                      {typeof status.progreso === "number" && (
+                        <div
+                          style={{
+                            width: 280,
+                            height: 8,
+                            margin: "8px auto 0",
+                            background: "#eee",
+                            borderRadius: 6,
+                            overflow: "hidden",
+                          }}
+                        >
+                          <div
+                            style={{
+                              width: `${Math.max(0, Math.min(100, status.progreso))}%`,
+                              height: "100%",
+                            }}
+                          />
                         </div>
                       )}
                     </div>
@@ -409,7 +487,7 @@ const fetchRecord = async () => {
                     className="btn"
                     onClick={() =>
                       navigate(
-                        `/estudio/${record.nss}/${encodeURIComponent(toSQLDateString(s.fecha))}` +
+                        `/estudio/${record.nss}/${encodeURIComponent(getFechaSQLParaAPI(s))}` +
                           (s.fechaDicomSQL ? `?fechaDicom=${encodeURIComponent(s.fechaDicomSQL)}` : "")
                       )
                     }
@@ -422,7 +500,7 @@ const fetchRecord = async () => {
                   <button
                     className="btn"
                     onClick={() => {
-                      setShow3DForFolder(prev => prev === s.folder ? null : s.folder);
+                      setShow3DForFolder((prev) => (prev === s.folder ? null : s.folder));
                       setStatus(null); // limpiar barra/estado de otro estudio
                     }}
                     style={{ marginTop: 8 }}
@@ -435,7 +513,7 @@ const fetchRecord = async () => {
               {/* Tarjeta para subir ZIP */}
               <div
                 className="grid-item upload-card"
-                onClick={() => document.getElementById("zip-upload").click()}
+                onClick={openZipPicker}
                 style={{
                   background: "#fff",
                   border: "1px dashed #007bff",
@@ -454,6 +532,7 @@ const fetchRecord = async () => {
                 <p style={{ fontSize: "0.85rem", color: "#666" }}>.zip con DICOMs</p>
                 <input
                   id="zip-upload"
+                  ref={zipInputRef}
                   type="file"
                   accept=".zip"
                   style={{ display: "none" }}
@@ -468,18 +547,21 @@ const fetchRecord = async () => {
         <div>
           {showDescripcionModal && (
             <DescripcionEstudio
-              descripcion={descripcionActual}
+              key={`${showDescripcionModal.nss_expediente}-${showDescripcionModal.fecha}`}
+              descripcion={showDescripcionModal.descripcion ?? ""}
               nss_expediente={showDescripcionModal.nss_expediente}
               fecha={showDescripcionModal.fecha}
               onClose={() => setShowDescripcionModal(false)}
-              onSave={async () => { await fetchRecord(); }}
+              onSave={async () => {
+                await fetchRecord();
+              }}
             />
           )}
 
           {/* Modal Diagnóstico */}
           {showDiagnosticoModal && (
             <EditFieldStudio
-              value={showDiagnosticoModal.value} 
+              value={showDiagnosticoModal.value}
               nss_expediente={showDiagnosticoModal.nss_expediente}
               fecha={showDiagnosticoModal.fecha}
               endpoint={diagnosticoEndpoint}
@@ -487,7 +569,9 @@ const fetchRecord = async () => {
               placeholder="Ingrese el diagnóstico del estudio"
               title="Diagnóstico del Estudio"
               onClose={() => setShowDiagnosticoModal(false)}
-              onSave={async () => { await fetchRecord(); }}
+              onSave={async () => {
+                await fetchRecord();
+              }}
             />
           )}
         </div>
@@ -514,17 +598,15 @@ const fetchRecord = async () => {
             >
               Cerrar
             </button>
-            <span style={{ color: "#fff", opacity: 0.8 }}>
-              Visualización 3D — {show3DForFolder}
-            </span>
+            <span style={{ color: "#fff", opacity: 0.8 }}>Visualización 3D — {show3DForFolder}</span>
           </div>
 
           {/* Contenedor del viewer 3D (ocupa todo) */}
           <div style={{ flex: 1, minHeight: 0 }}>
             <RenderPulmon
-              embedded          // no crea overlay propio
+              embedded // no crea overlay propio
               initialFolder={show3DForFolder}
-              height="100%"     // ocupa todo el alto disponible
+              height="100%" // ocupa todo el alto disponible
               key={show3DForFolder}
             />
           </div>

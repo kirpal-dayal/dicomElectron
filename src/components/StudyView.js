@@ -158,6 +158,9 @@ export default function StudyView() {
 
   useEffect(() => { draggingIndexRef.current = draggingIndex; }, [draggingIndex]);
 
+  const [currentPreset, setCurrentPreset] = useState(null);
+
+
   // ---------- VOI helpers ----------
   const applyVOI = (el, wl, ww) => {
     if (!el) return;
@@ -178,8 +181,13 @@ export default function StudyView() {
     if (preset === "bone") { wl =  300; ww = 1500; }
     setWindowCenter(wl);
     setWindowWidth(ww);
+    setCurrentPreset(preset);  
     applyVOI(viewerRef.current, wl, ww);
   };
+
+  useEffect(() => {
+  if (currentPreset == null) setPreset("lung");
+}, []);
 
   // ---------- Cargar lista DICOM ----------
   useEffect(() => {
@@ -378,7 +386,7 @@ useEffect(() => {
             nss,
             fechaSQL,
             auto.total,
-            "Volumen automático (modelo)",
+            undefined,
             false // manual = false ⇒ volumen_automatico
           );
           autoSavedRef.current = true;
@@ -463,8 +471,8 @@ useEffect(() => {
       await enviarVolumenABackend(
         nss,
         fechaSQL,
-        (volumenGlobal?.editableTotalVolume ?? null),
-        "Ajuste manual en StudyView",
+        (volumenGlobal?.editableTotalVolume ?? undefined),
+        undefined,
         true // manual = true ⇒ volumen_manual
       );
     } catch (err) {
@@ -875,12 +883,44 @@ useEffect(() => {
             <div style={{ color: "#fff", marginBottom: "1rem" }}>
               <div style={{ fontWeight: "bold", marginBottom: 6 }}>Visualización HU (WW/WL)</div>
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
-                <button className="btn" onClick={() => setPreset("lung")}>Pulmón</button>
-                <button className="btn" onClick={() => setPreset("ggo")}>Fibrosis/Vidrio</button>
-                <button className="btn" onClick={() => setPreset("soft")}>Partes blandas</button>
-                <button className="btn" onClick={() => setPreset("bone")}>Hueso</button>
-              </div>
+<div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+  <button
+    type="button"
+    className={`btn preset ${currentPreset === "lung" ? "active" : ""}`}
+    aria-pressed={currentPreset === "lung"}
+    onClick={() => setPreset("lung")}
+  >
+    Pulmón
+  </button>
+
+  <button
+    type="button"
+    className={`btn preset ${currentPreset === "ggo" ? "active" : ""}`}
+    aria-pressed={currentPreset === "ggo"}
+    onClick={() => setPreset("ggo")}
+  >
+    Fibrosis/Vidrio
+  </button>
+
+  <button
+    type="button"
+    className={`btn preset ${currentPreset === "soft" ? "active" : ""}`}
+    aria-pressed={currentPreset === "soft"}
+    onClick={() => setPreset("soft")}
+  >
+    Partes blandas
+  </button>
+
+  <button
+    type="button"
+    className={`btn preset ${currentPreset === "bone" ? "active" : ""}`}
+    aria-pressed={currentPreset === "bone"}
+    onClick={() => setPreset("bone")}
+  >
+    Hueso
+  </button>
+</div>
+
 
               <div style={{ marginBottom: 6 }}>
                 <label>WL (Level): {Math.round(windowCenter)} HU</label>
@@ -915,15 +955,15 @@ useEffect(() => {
               <input type="range" min="0.1" max="10" step="0.01" value={scale} onChange={handleZoomChange} />
             </div>
 
-            {/* navegación */}
-            <div style={{ marginTop: "1rem" }}>
-              <button className="btn" onClick={() => setSelectedIndex((prev) => Math.max(0, prev - 1))} disabled={selectedIndex === 0}>
-                Anterior
-              </button>
-              <button className="btn" onClick={() => setSelectedIndex((prev) => Math.min(dicomList.length - 1, prev + 1))} disabled={selectedIndex === dicomList.length - 1}>
-                Siguiente
-              </button>
-            </div>
+<div style={{ marginTop: "1rem", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, width: "100%" }}>
+  <button className="btn" onClick={() => setSelectedIndex((prev) => Math.max(0, prev - 1))} disabled={selectedIndex === 0}>
+    Anterior
+  </button>
+  <button className="btn" onClick={() => setSelectedIndex((prev) => Math.min(dicomList.length - 1, prev + 1))} disabled={selectedIndex === dicomList.length - 1}>
+    Siguiente
+  </button>
+</div>
+
 
             {/* capas */}
             {layers.length > 0 && (
@@ -1003,6 +1043,34 @@ useEffect(() => {
   border-radius: 6px; cursor: pointer; font-size: 0.85rem;
 }
 input[type="range"] { width: 100%; }
+
+/* estilo de presets */
+.btn.preset {
+  background: #0ea5e9;
+  opacity: 0.85;
+  transition: transform 0.05s ease, box-shadow 0.15s ease, opacity 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+  border: 2px solid transparent;
+}
+.btn.preset:hover { opacity: 1; }
+
+/* ACTIVO (dos selectores para asegurar) */
+.btn.preset.active,
+.btn.preset[aria-pressed="true"] {
+  opacity: 1;
+  background: #9ab3c0ff;           /* más oscuro */
+  border-color: #22d3ee;         /* cian */
+  box-shadow: 0 0 0 2px rgba(34,211,238,.25), 0 6px 14px rgba(0,0,0,.25);
+  transform: translateY(-1px);
+}
+
+.btn:disabled {
+  opacity: .6;
+  cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
+}
+
+
       `}</style>
     </>
   );
