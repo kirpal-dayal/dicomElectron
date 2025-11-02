@@ -1,44 +1,18 @@
-// // connectionDb.js
-// const mysql = require('mysql2');
-// require('dotenv').config(); // Cargar variables de entorno
-// const DB_PASSW = process.env.DB_PASSW;
-
-// // Configura la conexión a la base de datos MySQL local de prueba
-// // OCULTAR VALORES DE CONEXION CUANDO CAMBIEMOS A LA BD REAL!!!!
-// const db = mysql.createConnection({
-//   host: 'localhost',
-//   user: 'root',
-//   password: DB_PASSW,
-//   database: 'fibrosis_v06'
-// });  // .promise es clave para que funcione con async/await al momento de estar con los json
-
-// // Conectar a la base de datos
-// db.connect(err => {
-//   if (err) {
-//     console.error('Error conectando a la base de datos:', err);
-//     return;
-//   }
-//   console.log('Conectado a la base de datos MySQL');
-// });
-
-// module.exports = db;
 // backend/connectionDb.js
 const mysql = require('mysql2');
 require('dotenv').config();
 
-const {
-  DB_HOST='127.0.0.1',
-  DB_PORT='3307',
-  DB_USER='app',
-  DB_PASS='app123',
-  DB_NAME='fibrosis_v07'
-} = process.env;
+const required = ['DB_HOST','DB_PORT','DB_USER','DB_PASS','DB_NAME'];
+const missing = required.filter(k => !process.env[k]);
+if (missing.length) throw new Error(`[DB] Faltan variables de entorno: ${missing.join(', ')}`);
+
+const { DB_HOST, DB_PORT, DB_USER, DB_PASS, DB_NAME } = process.env;
 
 const db = mysql.createPool({
   host: DB_HOST,
   port: Number(DB_PORT),
   user: DB_USER,
-  password: DB_PASS,   // << sin DB_PASSW
+  password: DB_PASS,
   database: DB_NAME,
   waitForConnections: true,
   connectionLimit: 10,
@@ -46,11 +20,8 @@ const db = mysql.createPool({
 });
 
 db.getConnection((err, conn) => {
-  if (err) {
-    console.error('[DB] Error conectando:', err.message);
-    return;
-  }
-  console.log(`[DB] Conectado a ${DB_NAME} @ ${DB_HOST}:${DB_PORT} (user: ${DB_USER})`);
+  if (err) { console.error('[DB] Error conectando:', err.code || err.message); return; }
+  console.log(`[DB] Conectado a ${DB_NAME} @ ${DB_HOST}:${DB_PORT}`);
   conn.release();
 });
 

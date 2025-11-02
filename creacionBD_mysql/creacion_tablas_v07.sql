@@ -178,8 +178,6 @@ CREATE TABLE IF NOT EXISTS `fibrosis_v07`.`modifica_doc_estudio` (
 ENGINE = InnoDB;
 
 -- ========= SEED (PURO SQL) =========
--- IMPORTANTE: usa aquí una llave de DESARROLLO y pon la MISMA en tu backend (.env -> APP_ENCRYPTION_KEY).
-SET @APP_KEY := 'cambia_esta_llave';
 
 INSERT INTO admin (id_admin, nombre_admin, contrasena_admin, fecha_creacion, activo)
 VALUES ('A9856KIMU','AdminAdmin', AES_ENCRYPT('A9856KIMU', @APP_KEY), NOW(), 1)

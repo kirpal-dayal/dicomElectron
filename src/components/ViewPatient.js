@@ -360,7 +360,7 @@ export default function ViewPatient() {
             </div>
             <div className="actions" style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
               <button className="btn" style={{ marginTop: 8 }} onClick={() => descargarReportePaciente(record.nss)}>
-                Descargar reporte (.xlsx) 📋
+                Descargar reporte (.xlsx) 
               </button>
               <button className="btn" style={{ marginTop: 8 }} onClick={() => navigate(-1)}>
                 Volver
@@ -433,7 +433,7 @@ export default function ViewPatient() {
                     }}
                     style={{ marginTop: 8 }}
                   >
-                    Descripción ✏️
+                    Descripción 
                   </button>
 
                   <button
@@ -451,7 +451,7 @@ export default function ViewPatient() {
                     }}
                     style={{ marginTop: 8 }}
                   >
-                    Diagnóstico 🩺
+                    Diagnóstico 
                   </button>
 
                   {/* Barra de progreso (solo si el overlay 3D de este estudio está abierto) */}
@@ -493,7 +493,7 @@ export default function ViewPatient() {
                     }
                     style={{ marginTop: 8 }}
                   >
-                    Etiquetado 🖥️
+                    Etiquetado 
                   </button>
 
                   {/* Abrir overlay 3D */}
@@ -505,7 +505,7 @@ export default function ViewPatient() {
                     }}
                     style={{ marginTop: 8 }}
                   >
-                    {show3DForFolder === s.folder ? "Ocultar 3D" : "Visualizar 3D 🏗️"}
+                    {show3DForFolder === s.folder ? "Ocultar 3D" : "Visualizar 3D"}
                   </button>
                 </div>
               ))}

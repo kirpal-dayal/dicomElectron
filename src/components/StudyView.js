@@ -1021,7 +1021,7 @@ useEffect(() => {
         </div>
       )}
 
-      <style>{`
+     <style>{`
 .fullscreen-overlay {
   position: fixed;
   top: 0; left: 0;
@@ -1029,19 +1029,43 @@ useEffect(() => {
   display: flex; flex-direction: row;
   gap: 0; background: #000; z-index: 9999;
 }
+
+/* Panel lateral (desktop) */
 .sidebar-panel {
   width: 300px; background: #111; color: #fff;
   padding: 1rem; display: flex; flex-direction: column;
   height: 100vh; overflow-y: auto; box-shadow: 2px 0 6px rgba(0,0,0,0.4);
 }
-.main-panel { flex: 1; position: relative; height: 100vh; }
-.sidebar-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
-.fullscreen-viewer { width: 100%; height: 100%; background: black; border-radius: 12px; }
-.overlay-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: auto; }
+
+/* Area principal (visor) */
+.main-panel {
+  flex: 1; position: relative; height: 100vh;
+}
+
+.sidebar-header {
+  display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;
+}
+
+.fullscreen-viewer {
+  width: 100%; height: 100%; background: black; border-radius: 12px;
+}
+
+.overlay-canvas {
+  position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+  pointer-events: auto;
+  touch-action: none; /* ayuda en pantallas táctiles */
+}
+
+/* Botones / controles */
 .btn {
   padding: 0.5rem 0.7rem; background: #0ea5e9; color: #fff; border: none;
   border-radius: 6px; cursor: pointer; font-size: 0.85rem;
 }
+
+.btn:disabled {
+  opacity: .6; cursor: not-allowed; box-shadow: none; transform: none;
+}
+
 input[type="range"] { width: 100%; }
 
 /* estilo de presets */
@@ -1058,19 +1082,26 @@ input[type="range"] { width: 100%; }
 .btn.preset[aria-pressed="true"] {
   opacity: 1;
   background: #9ab3c0ff;           /* más oscuro */
-  border-color: #22d3ee;         /* cian */
+  border-color: #22d3ee;           /* cian */
   box-shadow: 0 0 0 2px rgba(34,211,238,.25), 0 6px 14px rgba(0,0,0,.25);
   transform: translateY(-1px);
 }
 
-.btn:disabled {
-  opacity: .6;
-  cursor: not-allowed;
-  box-shadow: none;
-  transform: none;
+/* ====== Responsive sencillo: en móviles el panel toma parte de la altura ====== */
+@media (max-width: 900px) {
+  .fullscreen-overlay {
+    flex-direction: column;          /* de columnas → filas */
+  }
+  .sidebar-panel {
+    width: 100%;
+    height: 42vh;                    /* ajusta entre 35–50vh a tu gusto */
+    max-height: 60vh;                /* límite de seguridad */
+    box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+  }
+  .main-panel {
+    height: calc(100vh - 42vh);      /* el visor ocupa el resto */
+  }
 }
-
-
       `}</style>
     </>
   );
