@@ -32,42 +32,42 @@ export default function DoctorView() {
   // — Opciones de fecha —
   const days = Array.from({ length: 31 }, (_, i) => i + 1)
   const months = [
-    'Enero','Febrero','Marzo','Abril','Mayo','Junio',
-    'Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'
+    'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+    'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
   ]
   const years = Array.from({ length: 100 }, (_, i) =>
     new Date().getFullYear() - i
   )
 
   // — Traer todos los expedientes —
-// src/components/DoctorView.js
-// import api from '../api'; // en vez de import axios from 'axios'
+  // src/components/DoctorView.js
+  // import api from '../api'; // en vez de import axios from 'axios'
 
-// …
+  // …
 
-const fetchAll = async () => {
-  setLoading(true)
-  try {
-    const { data } = await api.get('/api/expedientes')  // <- sin localhost
-    // Normaliza: garantiza un array aunque el backend devuelva {rows: [...]}, {patients: [...]}, etc.
-    const list =
-      Array.isArray(data) ? data :
-      Array.isArray(data?.patients) ? data.patients :
-      Array.isArray(data?.rows) ? data.rows :
-      []
+  const fetchAll = async () => {
+    setLoading(true)
+    try {
+      const { data } = await api.get('/api/expedientes')  // <- sin localhost
+      // Normaliza: garantiza un array aunque el backend devuelva {rows: [...]}, {patients: [...]}, etc.
+      const list =
+        Array.isArray(data) ? data :
+          Array.isArray(data?.patients) ? data.patients :
+            Array.isArray(data?.rows) ? data.rows :
+              []
 
-    setAllPatients(list)
-    setPatients(list)
-    setError(list.length ? '' : 'No se encontraron expedientes')
-  } catch (e) {
-    console.error('[DoctorView] /api/expedientes error:', e?.response?.data || e.message)
-    setError('No se pudieron cargar los expedientes')
-    setAllPatients([])
-    setPatients([])
-  } finally {
-    setLoading(false)
+      setAllPatients(list)
+      setPatients(list)
+      setError(list.length ? '' : 'No se encontraron expedientes')
+    } catch (e) {
+      console.error('[DoctorView] /api/expedientes error:', e?.response?.data || e.message)
+      setError('No se pudieron cargar los expedientes')
+      setAllPatients([])
+      setPatients([])
+    } finally {
+      setLoading(false)
+    }
   }
-}
 
 
 
@@ -76,23 +76,23 @@ const fetchAll = async () => {
   }, [])
 
   // — Live search: filtra localmente allPatients según searchTerm —
-useEffect(() => {
-  const term = searchTerm.trim()
-  const base = Array.isArray(allPatients) ? allPatients : []
-  if (!term) {
-    setPatients(base)
-  } else {
-    setPatients(
-      base.filter(p => String(p?.nss ?? '').includes(term))
-    )
-  }
-}, [searchTerm, allPatients])
+  useEffect(() => {
+    const term = searchTerm.trim()
+    const base = Array.isArray(allPatients) ? allPatients : []
+    if (!term) {
+      setPatients(base)
+    } else {
+      setPatients(
+        base.filter(p => String(p?.nss ?? '').includes(term))
+      )
+    }
+  }, [searchTerm, allPatients])
 
 
   // — Handlers del modal —
   const handleChange = e => {
     const { name, value } = e.target;
-    setForm(f => ({ ...f, [name]: value })); 
+    setForm(f => ({ ...f, [name]: value }));
     setFormError('');
   };
 
@@ -120,7 +120,7 @@ useEffect(() => {
       })
       await fetchAll()
       setShowForm(false)
-      setForm({ nss:'', day:'', month:'', year:'', sex:'' })
+      setForm({ nss: '', day: '', month: '', year: '', sex: '' })
     } catch (err) {
       setFormError(err.response?.data || 'Error al crear expediente')
     } finally {
@@ -238,7 +238,7 @@ useEffect(() => {
 
       {/* Navbar */}
       <header className="navbar">
-        <img src={logoBlanco} alt="Logo" style={{ display: 'block', margin: '10px', height: '90%'}} />
+        <img src={logoBlanco} alt="Logo" style={{ display: 'block', margin: '10px', height: '90%' }} />
         <div className="nav-buttons">
           <button className="btn" onClick={() => setShowForm(true)}>
             Añadir Paciente
@@ -268,7 +268,7 @@ useEffect(() => {
           </div>
 
           {loading && <p>Cargando expedientes…</p>}
-          {error   && <p className="error">{error}</p>}
+          {error && <p className="error">{error}</p>}
           {!loading && !patients.length && <p>No hay pacientes aún.</p>}
           {patients.length > 0 && (
             <table>
@@ -285,11 +285,11 @@ useEffect(() => {
                   <tr key={p.nss}>
                     <td>{p.nss}</td>
                     <td>{new Date(p.fecha_nacimiento).toLocaleDateString()}</td>
-<td>{
-  Number(p.sexo) === 1 ? 'Hombre'
-  : Number(p.sexo) === 2 ? 'Mujer'
-  : 'Otro'
-}</td>
+                    <td>{
+                      Number(p.sexo) === 1 ? 'Hombre'
+                        : Number(p.sexo) === 2 ? 'Mujer'
+                          : 'Otro'
+                    }</td>
 
                     <td>
                       <button
