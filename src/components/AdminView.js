@@ -167,12 +167,6 @@ function AdminView() {
                     onClick={() => changeDocStatus(d.id)}>
                     Cambiar estado
                   </button>
-                  <button
-                    className="btn-primary"
-                    onClick={() => handleViewDoctor(d.id)}
-                  >
-                    Ver
-                  </button>
                 </td>
               </tr>
             ))}
