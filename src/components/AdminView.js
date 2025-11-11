@@ -121,7 +121,7 @@ function AdminView() {
         onCreate={() => setShowFormNewDoc(true)}
       />*/}
       <header className="navbar">
-        <img src={logoBlanco} alt="Logo" style={{ display: 'block', margin: '10px', height: '90%'}} />
+        <img src={logoBlanco} alt="Logo" style={{ display: 'block', margin: '10px', height: '90%' }} />
         <div className="nav-buttons">
           <button className="btn" onClick={() => setShowFormNewDoc(true)}>
             Crear Doctor
