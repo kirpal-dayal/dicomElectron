@@ -166,9 +166,6 @@ export default function DoctorView() {
         }
         .nav-buttons .btn:hover { background:#2563eb; }
 
-        .container {
-          max-width:1200px; margin:var(--height-navbar) auto 2rem; padding:0 1rem, text-align:center;
-        }
         .table-card {
           background:#fff; border-radius:8px; padding:1.5rem;
           box-shadow:0 4px 12px rgba(0,0,0,0.1);
