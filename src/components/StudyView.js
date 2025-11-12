@@ -25,6 +25,7 @@ cornerstoneWADOImageLoader.configure({ beforeSend: () => {} });
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const num = (v, d = 0) => (Array.isArray(v) ? (+v[0] || d) : (+v || d));
 const THRESH = 6;
+const isEditKey = (e) => e.ctrlKey || e.metaKey; //helper para ctrl en windows
 
 /** Spacing robusto para todo el stack (row/col y delta entre cortes). */
 async function getRobustStackSpacing(dicomList) {
@@ -298,6 +299,31 @@ useEffect(() => {
 // helper chiquito para asegurar multi-contour en memoria
 const toMulti = (arr) => Array.isArray(arr?.[0]) ? arr : (Array.isArray(arr) ? [arr] : []);
 
+// --- helper: marcar multi-polígono como cerrado por polígono (propiedad __closed)
+// Nota: un array en JS puede tener propiedades. No se guarda en el JSON porque solo serializas puntos.
+const markClosed = (arr) => {
+  if (!Array.isArray(arr)) return arr;
+  arr.forEach((poly) => { if (Array.isArray(poly)) poly.__closed = true; });
+  return arr;
+};
+
+// --- helper: clonar manteniendo la marca __closed por polígono ---
+function clonePolygonsKeepingClosed(points) {
+  if (!Array.isArray(points)) return [];
+  const isMulti = Array.isArray(points[0]);
+  if (isMulti) {
+    return points.map((poly) => {
+      const cloned = poly.map((p) => ({ ...p }));
+      if (poly.__closed === true) cloned.__closed = true;
+      else if (poly.__closed === false) cloned.__closed = false;
+      return cloned;
+    });
+  } else {
+    return points.map((p) => ({ ...p }));
+  }
+}
+
+
 const fetchAllEditableLayers = useCallback(async () => {
   try {
     const { data: validIndexMap } = await axios.get(`/api/segment/valid-indices/${folder}`);
@@ -322,12 +348,14 @@ const fetchAllEditableLayers = useCallback(async () => {
 
         const L = [];
         if (modelo) {
-          L.push({ name: "Pulmón (modelo)",   points: toMulti(modelo.lung),     visible: true, color: "lime",   closed: true, editable: false });
-          L.push({ name: "Fibrosis (modelo)", points: toMulti(modelo.fibrosis), visible: true, color: "red",    closed: true, editable: false });
+          L.push({ name: "Pulmón (modelo)",   points: markClosed(toMulti(modelo.lung)),     visible: true, color: "lime",   closed: true, editable: false });
+
+          L.push({ name: "Fibrosis (modelo)", points: markClosed(toMulti(modelo.fibrosis)), visible: true, color: "red",    closed: true, editable: false });
         }
+
         if (dbMask) {
-          L.push({ name: "Pulmón (editable)",   points: toMulti(dbMask.lung),     visible: true, color: "yellow", closed: true, editable: true  });
-          L.push({ name: "Fibrosis (editable)", points: toMulti(dbMask.fibrosis), visible: true, color: "orange", closed: true, editable: true  });
+          L.push({ name: "Pulmón (editable)",   points: markClosed(toMulti(dbMask.lung)),     visible: true, color: "yellow", closed: true, editable: true  });
+          L.push({ name: "Fibrosis (editable)", points: markClosed(toMulti(dbMask.fibrosis)), visible: true, color: "orange", closed: true, editable: true  });
         }
 
         layersPorSlice[index] = L;
@@ -549,37 +577,51 @@ useEffect(() => {
       const allPolygons = isMultiContour ? layer.points : [layer.points];
 
       allPolygons.forEach((polygon) => {
-        if (!Array.isArray(polygon) || polygon.length < 2) return;
+        if (!Array.isArray(polygon)) return;
 
+        // filtra puntos válidos
         const filteredPoints = polygon.filter(
           (p) => p && typeof p.x === "number" && typeof p.y === "number"
         );
-        if (filteredPoints.length < 2) return;
+        if (filteredPoints.length === 0) return;
 
         const screenPoints = filteredPoints.map((p) => cornerstone.pixelToCanvas(element, p));
         if (screenPoints.some((pt) => !pt || typeof pt.x !== "number")) return;
 
-        if (layer.closed && screenPoints.length >= 3) {
+        // cerrado por polígono; si no tiene marca, cae al valor de la capa
+        const polyClosed = (polygon.__closed === true) || (polygon.__closed == null && layer.closed);
+
+        // Relleno: solo si hay >=3 y está cerrado
+        if (polyClosed && screenPoints.length >= 3) {
           ctx.beginPath();
           ctx.moveTo(screenPoints[0].x, screenPoints[0].y);
-          for (let i = 1; i < screenPoints.length; i++) ctx.lineTo(screenPoints[i].x, screenPoints[i].y);
+          for (let i = 1; i < screenPoints.length; i++) {
+            ctx.lineTo(screenPoints[i].x, screenPoints[i].y);
+          }
           ctx.closePath();
           ctx.fillStyle = "rgba(0,255,0,0.2)";
           ctx.fill();
         }
 
-        ctx.beginPath();
-        ctx.strokeStyle = layer.color || "cyan";
-        ctx.lineWidth = 2;
-        ctx.moveTo(screenPoints[0].x, screenPoints[0].y);
-        for (let i = 1; i < screenPoints.length; i++) ctx.lineTo(screenPoints[i].x, screenPoints[i].y);
-        if (layer.closed) ctx.lineTo(screenPoints[0].x, screenPoints[0].y);
-        ctx.stroke();
+        // Borde: solo si hay >=2
+        if (screenPoints.length >= 2) {
+          ctx.beginPath();
+          ctx.strokeStyle = layer.color || "cyan";
+          ctx.lineWidth = 2;
+          ctx.moveTo(screenPoints[0].x, screenPoints[0].y);
+          for (let i = 1; i < screenPoints.length; i++) {
+            ctx.lineTo(screenPoints[i].x, screenPoints[i].y);
+          }
+          if (polyClosed) ctx.lineTo(screenPoints[0].x, screenPoints[0].y);
+          ctx.stroke();
+        }
 
+        // Handles: siempre que la capa sea editable (aunque haya 1 punto)
         if (layer.editable) {
-          screenPoints.forEach((pt) => {
+          screenPoints.forEach((pt, idx) => {
             ctx.beginPath();
-            ctx.arc(pt.x, pt.y, 5, 0, 2 * Math.PI);
+            const r = screenPoints.length === 1 ? 6 : 5; // un pelín más grande si es el primero
+            ctx.arc(pt.x, pt.y, r, 0, 2 * Math.PI);
             ctx.fillStyle = "red";
             ctx.fill();
           });
@@ -587,6 +629,7 @@ useEffect(() => {
       });
     });
   };
+
 
   // ---------- Edición por click ----------
   const pointToSegmentDistance = (p, a, b) => {
@@ -599,96 +642,44 @@ useEffect(() => {
     return Math.hypot(p.x - closest.x, p.y - closest.y);
   };
 
-  const handleOverlayClick = (e) => {
-    const currentLayer = layers[selectedLayerIndex];
-    if (!currentLayer || !currentLayer.editable) return;
+const handleOverlayClick = (e) => {
+  const currentLayer = layers[selectedLayerIndex];
+  if (!currentLayer || !currentLayer.editable) return;
 
-    const element = viewerRef.current;
-    const canvas = overlayRef.current;
-    if (!element || !canvas || wasDragging) return;
+  const element = viewerRef.current;
+  const canvas = overlayRef.current;
+  if (!element || !canvas || wasDragging) return;
 
-    const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    const imagePoint = cornerstone.canvasToPixel(element, { x, y });
+  const rect = canvas.getBoundingClientRect();
+  const x = e.clientX - rect.left;
+  const y = e.clientY - rect.top;
+  const imagePoint = cornerstone.canvasToPixel(element, { x, y });
+  const toCanvas = (p) => cornerstone.pixelToCanvas(element, p);
 
-    const toCanvas = (p) => cornerstone.pixelToCanvas(element, p);
+  // deep copy del slice (conserva __closed)
+  const nextLayers = layers.map((l) => ({
+    ...l,
+    points: clonePolygonsKeepingClosed(l.points || []),
+  }));
 
-    // deep copy del slice
-    const nextLayers = layers.map((l) => ({
-      ...l,
-      points: Array.isArray(l.points?.[0])
-        ? l.points.map((poly) => poly.map((p) => ({ ...p })))
-        : Array.isArray(l.points)
-        ? l.points.map((p) => ({ ...p }))
-        : [],
-    }));
+  const layer = nextLayers[selectedLayerIndex];
+  if (!layer.points) layer.points = [];
+  const isMulti = Array.isArray(layer.points[0]);
+  let polygons = isMulti ? layer.points : [layer.points];
+  if (!polygons.length) {
+    const empty = [];
+    empty.__closed = false; // ← marcar explícitamente abierto
+    polygons = [empty];
+    layer.points = isMulti ? polygons : polygons[0];
+  }
 
-    const layer = nextLayers[selectedLayerIndex];
-
-    if (!layer.points) layer.points = [];
-    const isMulti = Array.isArray(layer.points[0]);
-    let polygons = isMulti ? layer.points : [layer.points];
-
-    if (!polygons.length) {
-      polygons = [[]];
-      layer.points = isMulti ? polygons : polygons[0];
-    }
-
-    // ALT → borrar punto
-    if (e.altKey) {
-      for (let pIdx = 0; pIdx < polygons.length; pIdx++) {
-        const spts = polygons[pIdx].map(toCanvas);
-        const idx = spts.findIndex((pt) => Math.hypot(pt.x - x, pt.y - y) < THRESH);
-        if (idx !== -1) {
-          polygons[pIdx].splice(idx, 1);
-          layer.points = isMulti ? polygons : polygons[0];
-          setLayers(nextLayers);
-          recalcGlobalVolumeInstant(selectedIndex, nextLayers);
-          saveEditableJson(selectedIndex, nextLayers);
-          return;
-        }
-      }
-    }
-
-    // Insertar sobre borde si está cerrado
-    if (layer.closed) {
-      for (let pIdx = 0; pIdx < polygons.length; pIdx++) {
-        const spts = polygons[pIdx].map(toCanvas);
-        for (let i = 0; i < spts.length; i++) {
-          const a = spts[i];
-          const b = spts[(i + 1) % spts.length];
-          const dist = pointToSegmentDistance({ x, y }, a, b);
-          if (dist < THRESH) {
-            polygons[pIdx].splice(i + 1, 0, imagePoint);
-            layer.points = isMulti ? polygons : polygons[0];
-            setLayers(nextLayers);
-            recalcGlobalVolumeInstant(selectedIndex, nextLayers);
-            saveEditableJson(selectedIndex, nextLayers);
-            return;
-          }
-        }
-      }
-    } else {
-      // Cerrar polígono si clic cerca del primer punto
-      const firstPoly = polygons[0];
-      if (firstPoly.length >= 3) {
-        const firstCanvas = toCanvas(firstPoly[0]);
-        if (Math.hypot(firstCanvas.x - x, firstCanvas.y - y) < THRESH) {
-          layer.closed = true;
-          layer.points = isMulti ? polygons : polygons[0];
-          setLayers(nextLayers);
-          recalcGlobalVolumeInstant(selectedIndex, nextLayers);
-          saveEditableJson(selectedIndex, nextLayers);
-          return;
-        }
-      }
-
-      // Evitar puntos muy cercanos
-      const spts = (polygons[0] || []).map(toCanvas);
-      const tooClose = spts.some((pt) => Math.hypot(pt.x - x, pt.y - y) < THRESH);
-      if (!tooClose) {
-        polygons[0].push(imagePoint);
+  // 1) ALT + click → borrar punto (siempre permitido)
+  if (e.altKey) {
+    for (let pIdx = 0; pIdx < polygons.length; pIdx++) {
+      const spts = polygons[pIdx].map(toCanvas);
+      const idx = spts.findIndex((pt) => Math.hypot(pt.x - x, pt.y - y) < THRESH);
+      if (idx !== -1) {
+        polygons[pIdx].splice(idx, 1);
         layer.points = isMulti ? polygons : polygons[0];
         setLayers(nextLayers);
         recalcGlobalVolumeInstant(selectedIndex, nextLayers);
@@ -696,7 +687,104 @@ useEffect(() => {
         return;
       }
     }
-  };
+    return; // sin Alt+match no hacemos nada más
+  }
+
+      // 2) Ctrl/Cmd + click → insertar/cerrar en el polígono adecuado, o crear uno nuevo
+      if (isEditKey(e)) {
+        e.preventDefault();
+
+        // 2.1) Intentar insertar sobre el borde de algún polígono CERRADO (por-polígono)
+        for (let pIdx = 0; pIdx < polygons.length; pIdx++) {
+          const poly = polygons[pIdx];
+          const polyClosed = (poly.__closed === true) || (poly.__closed == null && layer.closed);
+          if (!polyClosed || poly.length < 2) continue;
+
+          const spts = poly.map(toCanvas);
+          for (let i = 0; i < spts.length; i++) {
+            const a = spts[i];
+            const b = spts[(i + 1) % spts.length];
+            const dist = pointToSegmentDistance({ x, y }, a, b);
+            if (dist < THRESH) {
+              poly.splice(i + 1, 0, imagePoint);
+              layer.points = isMulti ? polygons : polygons[0];
+              setLayers(nextLayers);
+              recalcGlobalVolumeInstant(selectedIndex, nextLayers);
+              saveEditableJson(selectedIndex, nextLayers);
+              return;
+            }
+          }
+        }
+
+        // 2.2) Usar/crear un polígono ABIERTO
+        // Busca un polígono explícitamente abierto (__closed === false)
+        let openIdx = polygons.findIndex((p) => p.__closed === false);
+        // Si no existe, pero tienes un "placeholder" vacío al inicio, úsalo
+        if (openIdx === -1 && polygons.length === 1 && polygons[0].length === 0 && polygons[0].__closed !== true) {
+          openIdx = 0;
+          polygons[0].__closed = false;
+        }
+        // Si aún no hay, crea uno nuevo
+        if (openIdx === -1) {
+          const newPoly = [];
+          newPoly.__closed = false;
+          polygons.push(newPoly);
+          openIdx = polygons.length - 1;
+        }
+
+        const targetPoly = polygons[openIdx];
+
+        // 2.3) Si clic cerca del primer punto y ya hay >=3, cerrar este polígono
+        if (targetPoly.length >= 3) {
+          const firstCanvas = toCanvas(targetPoly[0]);
+          if (Math.hypot(firstCanvas.x - x, firstCanvas.y - y) < THRESH) {
+            targetPoly.__closed = true;
+            layer.points = isMulti ? polygons : polygons[0];
+            setLayers(nextLayers);
+            recalcGlobalVolumeInstant(selectedIndex, nextLayers);
+            saveEditableJson(selectedIndex, nextLayers);
+            return;
+          }
+        }
+
+        // 2.4) Añadir punto al polígono abierto (evitando puntos demasiado cercanos)
+        const spts = targetPoly.map(toCanvas);
+        const tooClose = spts.some((pt) => Math.hypot(pt.x - x, pt.y - y) < THRESH);
+        if (!tooClose) {
+          targetPoly.push(imagePoint);
+          layer.points = isMulti ? polygons : polygons[0];
+          setLayers(nextLayers);
+          recalcGlobalVolumeInstant(selectedIndex, nextLayers);
+          saveEditableJson(selectedIndex, nextLayers);
+        }
+        return;
+      }
+
+
+  // 3) Click izquierdo (sin modificadores) → editar SOLO líneas ya existentes:
+  //    - Si polígono está CERRADO: permitir insertar sobre borde.
+  //    - Si está ABIERTO: NO añadir ni cerrar (ediciones "no destructivas").
+  if (layer.closed) {
+    for (let pIdx = 0; pIdx < polygons.length; pIdx++) {
+      const spts = polygons[pIdx].map(toCanvas);
+      for (let i = 0; i < spts.length; i++) {
+        const a = spts[i];
+        const b = spts[(i + 1) % spts.length];
+        const dist = pointToSegmentDistance({ x, y }, a, b);
+        if (dist < THRESH) {
+          polygons[pIdx].splice(i + 1, 0, imagePoint);
+          layer.points = isMulti ? polygons : polygons[0];
+          setLayers(nextLayers);
+          recalcGlobalVolumeInstant(selectedIndex, nextLayers);
+          saveEditableJson(selectedIndex, nextLayers);
+          return;
+        }
+      }
+    }
+  }
+  // Si polígono abierto o clic en vacío: no hace nada.
+};
+
 
   // ---------- Drag de vértices + pan ----------
   useEffect(() => {
@@ -711,29 +799,35 @@ useEffect(() => {
       return { x: e.clientX - rect.left, y: e.clientY - rect.top };
     };
 
-    const handleMouseDown = (e) => {
-      if (e.button === 1) {
-        e.preventDefault();
-        setIsPanning(true);
-        setLastPanPosition({ x: e.clientX, y: e.clientY });
-        return;
-      }
-      setWasDragging(false);
+const handleMouseDown = (e) => {
+  if (e.button === 1) {
+    e.preventDefault();
+    setIsPanning(true);
+    setLastPanPosition({ x: e.clientX, y: e.clientY });
+    return;
+  }
 
-      const { x, y } = getMouseCoords(e);
-      const isMulti = Array.isArray(layer.points[0]);
-      const polygons = isMulti ? layer.points : [layer.points];
+  // Mover vértices SOLO con Ctrl/Cmd + click izquierdo
+  if (!isEditKey(e) || e.button !== 0) return;
+  e.preventDefault();
 
-      for (let pIdx = 0; pIdx < polygons.length; pIdx++) {
-        const screenPoints = polygons[pIdx].map((p) => cornerstone.pixelToCanvas(element, p));
-        screenPoints.forEach((pt, i) => {
-          if (Math.hypot(pt.x - x, pt.y - y) < THRESH) {
-            setDraggingIndex({ pIdx, i });
-            draggingIndexRef.current = { pIdx, i };
-          }
-        });
+  setWasDragging(false);
+
+  const { x, y } = getMouseCoords(e);
+  const isMulti = Array.isArray(layer.points[0]);
+  const polygons = isMulti ? layer.points : [layer.points];
+
+  for (let pIdx = 0; pIdx < polygons.length; pIdx++) {
+    const screenPoints = polygons[pIdx].map((p) => cornerstone.pixelToCanvas(element, p));
+    screenPoints.forEach((pt, i) => {
+      if (Math.hypot(pt.x - x, pt.y - y) < THRESH) {
+        setDraggingIndex({ pIdx, i });
+        draggingIndexRef.current = { pIdx, i };
       }
-    };
+    });
+  }
+};
+
 
     const handleMouseMove = (e) => {
       // Pan con botón medio
@@ -761,9 +855,7 @@ useEffect(() => {
 
       const updatedSlice = baseSliceLayers.map((l) => ({
         ...l,
-        points: Array.isArray(l.points?.[0])
-          ? l.points.map((poly) => poly.map((p) => ({ ...p })))
-          : Array.isArray(l.points) ? l.points.map((p) => ({ ...p })) : [],
+        points: clonePolygonsKeepingClosed(l.points || []),
       }));
 
       const lay = updatedSlice[selectedLayerIndex];

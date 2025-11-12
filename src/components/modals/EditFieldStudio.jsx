@@ -81,14 +81,15 @@ export default function EditFieldStudio({
           rows={6}
           style={{ width: "100%" }}
         />
-        <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-          <button onClick={handleSave} disabled={saving}>
-            {saving ? "Guardando..." : "Guardar"}
-          </button>
-          <button onClick={handleClose} disabled={saving}>
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 12 }}>
+          <button className="btn" onClick={handleClose} disabled={saving}>
             Cerrar
           </button>
+          <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
+            {saving ? "Guardando..." : "Guardar"}
+          </button>
         </div>
+
       </div>
     </div>
   );

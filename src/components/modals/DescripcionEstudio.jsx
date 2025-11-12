@@ -31,10 +31,14 @@ const DescripcionEstudio = ({ descripcion, nss_expediente, fecha, onClose, onSav
           onChange={e => setDesc(e.target.value)}
           placeholder="Ingrese la descripción del estudio"
         />
-        <button onClick={handleSave} disabled={saving}>
-          {saving ? "Guardando..." : "Guardar"}
-        </button>
-        <button onClick={onClose}>Cerrar</button>
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 12 }}>
+          <button className="btn" onClick={onClose} disabled={saving}>
+            Cerrar
+          </button>
+          <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
+            {saving ? "Guardando..." : "Guardar"}
+          </button>
+        </div>
       </div>
     </div>
   );
