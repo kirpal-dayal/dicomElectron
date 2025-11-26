@@ -7,7 +7,6 @@ const fileUpload = require('express-fileupload');
 const fs = require('fs');
 const path = require('path');
 const dotenv = require('dotenv');
-//const logger = require('./logging/logger');
 const logger = require(path.join(__dirname, '../logging/logger'));
 dotenv.config();
 
@@ -36,7 +35,6 @@ if (fs.existsSync(routesDir)) {
     if (file === 'imageRoutes.js') {
       const imageRouter = require(path.join(routesDir, file));
       app.use('/api/image', imageRouter);
-      console.log('  Ruta /api/image montada');
       logger.info('Ruta /api/image montada');
       return;
     }
@@ -44,7 +42,6 @@ if (fs.existsSync(routesDir)) {
     if (file === 'segmentRoutes.js') {
       const { router: segmentRouter } = require(path.join(routesDir, file));
       app.use('/api/segment', segmentRouter);
-      console.log('  Ruta /api/segment montada');
       logger.info('Ruta /api/segment montada');
       return;
     }
@@ -52,7 +49,6 @@ if (fs.existsSync(routesDir)) {
     // Resto de routers exportados como Router por default
     const genericRouter = require(path.join(routesDir, file));
     app.use('/api', genericRouter);
-    console.log(`  Ruta /api/${file.replace('.js','')} registrada como Router.`);
     logger.info(`Ruta /api/${file.replace('.js','')} registrada como Router.`);
   });
 }
@@ -65,7 +61,6 @@ if (fs.existsSync(httpRequestsPath)) {
     const plug = require(path.join(httpRequestsPath, file));
     if (typeof plug === 'function') {
       plug(app);
-      console.log(`  Ruta de httpRequests ${file} registrada.`);
       logger.info(`Ruta de httpRequests ${file} registrada.`);
     }
   });
@@ -80,23 +75,5 @@ app.get('*', (req, res) => {
 // -------- Arranque --------
 const PORT = process.env.PORT || port || 5000;
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Servidor escuchando en http://0.0.0.0:${PORT}`);
+  logger.info(`Servidor backend arrancado en http://0.0.0.0:${PORT}`);
 });
-
-/* // -------------------------------------------------------------------------------------No entiendo cómo funciona esto
-process.on("uncaughtException", (error) => {
-  logger.error({
-    message: "Excepción no capturada",
-    error: error.message,
-    stack: error.stack,
-  });
-  process.exit(1); // Salir del proceso
-});
-
-process.on("unhandledRejection", (reason) => {
-  logger.error({
-    message: "Promesa rechazada no manejada",
-    reason,
-  });
-});
-*/
