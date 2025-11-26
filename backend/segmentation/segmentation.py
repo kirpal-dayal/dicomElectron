@@ -6,7 +6,6 @@ import json
 import numpy as np
 import cv2
 import pydicom as pd
-from pydicom.misc import is_dicom
 from tifffile import imwrite
 
 # === IMPORTANTE: elegir framework ANTES de importar segmentation_models ===
@@ -354,27 +353,32 @@ def dicom_segmentation(path_original, size=(256, 256), n_clases=3, enable_dbscan
     sign_ins = _median_sign(np.diff(inst_sorted)) if len(inst_sorted)>= 2 else 0
 
     if sign_z != 0 and sign_ins != 0 and sign_z != sign_ins:
-        logger.info("[ORIENT] zpos y InstanceNumber avanzan en sentidos opuestos → invirtiendo stack")
+        logger.info("[ORIENT] zpos y InstanceNumber avanzan en sentidos opuestos  invirtiendo stack")
         results.reverse()
     elif sign_z == 0 and sign_ins < 0:
-        logger.info("[ORIENT] InstanceNumber decreciente y zpos sin señal → invirtiendo stack")
+        logger.info("[ORIENT] InstanceNumber decreciente y zpos sin señal  invirtiendo stack")
         results.reverse()
 
     # 4) Construir arrays ordenados
     arr_original = np.stack([r["img_resized"] for r in results]).astype(np.uint16)  # (N,SIZE_Y,SIZE_X)
     ds_valids    = [r["ds"] for r in results]
     valid_paths  = [r["path"] for r in results]
-    # tamaño original del PRIMER slice ORDENADO
-    first_shape = results[0]["orig_shape"]
-    img_size = (int(first_shape[0]), int(first_shape[1]))  # (rows, cols)
 
     # 5) PixelSpacing y escalas (de original a SIZE)
     ds_ref = ds_valids[0]
-    original_pixel_spacing = getattr(ds_ref, "PixelSpacing", [1.0, 1.0])
-    # PixelSpacing = [row_spacing, col_spacing] -> [mm/px en y, mm/px en x]
-    pixel_relation = float(img_size[0]) / float(SIZE_Y)
-    pixelen_y = float(original_pixel_spacing[0]) * pixel_relation
-    pixelen_x = float(original_pixel_spacing[1]) * pixel_relation
+    original_pixel_spacing = getattr(ds_ref, "PixelSpacing", [1.0, 1.0])  # [row_mm, col_mm]
+
+    # Tamaño original del PRIMER slice ordenado (rows, cols)
+    first_shape = results[0]["orig_shape"]
+    img_size = (int(first_shape[0]), int(first_shape[1]))  # (rows, cols)
+
+    # Escalas de reescalado del modelo (original -> SIZE)
+    scale_y_model = float(img_size[0]) / float(SIZE_Y)  # filas
+    scale_x_model = float(img_size[1]) / float(SIZE_X)  # columnas
+
+    # mm por píxel en la imagen con la que se segmenta (la reescalada al SIZE)
+    pixelen_y = float(original_pixel_spacing[0]) * scale_y_model
+    pixelen_x = float(original_pixel_spacing[1]) * scale_x_model
     pixelarea = pixelen_x * pixelen_y
 
     # 6) Δz ROBUSTO
@@ -392,15 +396,17 @@ def dicom_segmentation(path_original, size=(256, 256), n_clases=3, enable_dbscan
         spacing_between_slices = abs(float(spacing_between_slices))
 
     if debug:
-        logger.info("\n========== [INFO] Parámetros de cálculo de volumen ==========")
-        logger.info(f"Resolución original DICOM: {img_size} (rows, cols)")
-        logger.info(f"Resolución usada para modelo: {SIZE_X} x {SIZE_Y}")
+        logger.info("\n========== [INFO] Parametros de calculo de volumen ==========")
+        logger.info(f"Resolucion original DICOM: {img_size} (rows, cols)")
+        logger.info(f"Resolucion usada para modelo: {SIZE_X} x {SIZE_Y}")
         logger.info(f"PixelSpacing original (mm): {original_pixel_spacing}")
-        logger.info(f"Factor de escalado (rows): {pixel_relation:.4f}")
+        logger.info(f"Escala filas (orig->SIZE): {scale_y_model:.4f}")
+        logger.info(f"Escala columnas (orig->SIZE): {scale_x_model:.4f}")
         logger.info(f"pixelen_x (mm/px): {pixelen_x:.4f} · pixelen_y (mm/px): {pixelen_y:.4f}")
-        logger.info(f"Área por píxel (mm²): {pixelarea:.4f}")
+        logger.info(f"Area por pixel (mm^2): {pixelarea:.4f}")
         logger.info(f"Espacio entre cortes (Δz, mm): {spacing_between_slices:.4f}")
         logger.info("==============================================================\n")
+
 
     # 7) Predicción
     arr_color = np.array([cv2.cvtColor(img, cv2.COLOR_GRAY2BGR) for img in arr_original])
@@ -455,12 +461,14 @@ def dicom_segmentation(path_original, size=(256, 256), n_clases=3, enable_dbscan
     lung_pixels_pred = []
     fibrosis_pixels_pred = []
 
-    scale_x = float(img_size[1]) / float(SIZE_X)
-    scale_y = float(img_size[0]) / float(SIZE_Y)
     global_point_index = 0
-
     build_prog = ProgressReporter("[BUILD SLICES]", len(study_all_contours_lung))
     for idx, (cnts_lung_xy, cnts_fib_xy) in enumerate(zip(study_all_contours_lung, study_all_contours_fibrosis)):
+        # Escala POR SLICE usando su tamaño original real
+        orig_rows, orig_cols = results[idx]["orig_shape"]
+        scale_x = float(orig_cols) / float(SIZE_X)
+        scale_y = float(orig_rows) / float(SIZE_Y)
+
         # Filtrado por DBSCAN (opcional)
         filtered_lung_cnts = []
         if enable_dbscan_filter and labels is not None and most_common_label is not None:
@@ -543,7 +551,7 @@ def dicom_segmentation(path_original, size=(256, 256), n_clases=3, enable_dbscan
             os.path.join(output_dir, "ct_original.tif"),
             arr_original,
             imagej=True,
-            resolution=(1 / pixelarea, 1 / pixelarea),
+            resolution=(1.0 / pixelen_x, 1.0 / pixelen_y), 
             metadata={"spacing": spacing_between_slices, "unit": "mm", "axes": "ZYX"},
         )
     except Exception as e:
@@ -554,7 +562,7 @@ def dicom_segmentation(path_original, size=(256, 256), n_clases=3, enable_dbscan
             os.path.join(output_dir, "mascaras_pred.tif"),
             filtered_masks,
             imagej=True,
-            resolution=(1 / pixelarea, 1 / pixelarea),
+            resolution=(1.0 / pixelen_x, 1.0 / pixelen_y), 
             metadata={"spacing": spacing_between_slices, "unit": "mm", "axes": "ZYX"},
         )
     except Exception as e:
