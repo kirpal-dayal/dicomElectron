@@ -6,17 +6,22 @@ const cors = require('cors');
 const fileUpload = require('express-fileupload');
 const fs = require('fs');
 const path = require('path');
-const dotenv = require('dotenv');
 const logger = require(path.join(__dirname, '../logging/logger'));
+const dotenv = require('dotenv');
 dotenv.config();
+
 
 const {
   port,
   nameDirectoryRequests,
-  nameDirectoryDicom
+  nameDirectoryDicom,
+  host
 } = require('./configConst');
 
 const app = express();
+
+const PORT = port || 5000;
+const HOST = host || '0.0.0.0';
 
 // -------- Middlewares base --------
 app.use(cors());              // en prod: limita a origen del cliente
@@ -73,7 +78,6 @@ app.get('*', (req, res) => {
 });
 
 // -------- Arranque --------
-const PORT = process.env.PORT || port || 5000;
-app.listen(PORT, '0.0.0.0', () => {
-  logger.info(`Servidor backend arrancado en http://0.0.0.0:${PORT}`);
+app.listen(PORT, HOST, () => {
+  logger.info(`Servidor backend arrancado en http://${HOST}:${PORT}`);
 });
