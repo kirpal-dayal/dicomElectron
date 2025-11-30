@@ -77,6 +77,23 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'build', 'index.html'));
 });
 
+// Global error handlers
+process.on("uncaughtException", (error) => {
+  logger.error({
+    message: "Excepción no capturada",
+    error: error.message,
+    stack: error.stack,
+  });
+  process.exit(1); // Force exit, VERIFY HAVING AN AUTO-RESTART MECHANISM (E.g., PM2, docker)
+});
+
+process.on("unhandledRejection", (reason) => {
+  logger.error({
+    message: "Promesa rechazada no manejada",
+    reason,
+  });
+});
+
 // -------- Arranque --------
 app.listen(PORT, HOST, () => {
   logger.info(`Servidor backend arrancado en http://${HOST}:${PORT}`);
