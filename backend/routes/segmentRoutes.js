@@ -6,11 +6,12 @@
 const express = require('express');
 const router = express.Router();
 const path = require('path');
+const logger = require(path.join(__dirname, '../../logging/logger'));
 const fs = require('fs');
 const fsp = require('fs/promises');
 const db = require('../connectionDb'); // conexión MySQL
 
-// ========= Utils =========
+// ========= Utils ========= conviene moverlos a /src/utils ?
 function parseFolder(folder) {
   // NSS_YYYY-MM-DD_HH_mm_ss
   const m = folder.match(/^([A-Za-z0-9_-]+)_((\d{4}-\d{2}-\d{2})_(\d{2})_(\d{2})_(\d{2}))$/);
@@ -26,7 +27,7 @@ function readJSONMaybe(filePath) {
     const txt = fs.readFileSync(filePath, 'utf8');
     return JSON.parse(txt);
   } catch (e) {
-    console.error('[JSON] error leyendo', filePath, e.message);
+    logger.error('[JSON] error leyendo %s: %s', filePath, e.message);
     return null;
   }
 }
@@ -76,9 +77,13 @@ function normalizeCoords(rowPulmon, rowFibrosis) {
   const use = (row, kind) => {
     if (!row) return;
     let data = row.coordenadas;
-    try { if (typeof data === 'string') data = JSON.parse(data); } catch {}
+    try { if (typeof data === 'string') data = JSON.parse(data); } 
+    catch (e) { 
+      logger.error('[normalizeCoords] Error parsing JSON: %s', e.message); 
+      //return;
+    }
     const lung = data?.lung ?? data?.lung_editable ?? [];
-    const fib  = data?.fibrosis ?? data?.fibrosis_editable ?? [];
+    const fib = data?.fibrosis ?? data?.fibrosis_editable ?? [];
     if (kind === 'pulmon') {
       if (Array.isArray(lung)) out.lung = lung;
       if (Array.isArray(fib) && out.fibrosis.length === 0) out.fibrosis = fib;
@@ -95,9 +100,14 @@ function normalizeCoords(rowPulmon, rowFibrosis) {
 // ========= Endpoints públicos =========
 
 // Volúmenes (prefiere manual; si no, automático; fallback a archivo)
-router.get('/volumen/:folder', async (req, res) => {
+router.get('/volumen/:folder', async (req, res, next) => {
   const parsed = parseFolder(req.params.folder);
-  if (!parsed) return res.status(400).json({ error: 'folder inválido' });
+  if (!parsed) {
+    const err = new Error('folder inválido');
+    err.status = 400;
+    err.message = `HTTP ${err.status} - ${err.message || ''} - Error al parsear folder`;
+    return next(err);
+  }
 
   try {
     const sql = `
@@ -136,8 +146,8 @@ router.get('/volumen/:folder', async (req, res) => {
 
       const r = rows[0] || {};
       const lung = r.volumen_pulmon_manual ?? r.volumen_pulmon_automatico ?? null;
-      const fib  = r.volumen_fibrosis_manual ?? r.volumen_fibrosis_automatico ?? null;
-      let total  = r.volumen_manual ?? r.volumen_automatico ?? null;
+      const fib = r.volumen_fibrosis_manual ?? r.volumen_fibrosis_automatico ?? null;
+      let total = r.volumen_manual ?? r.volumen_automatico ?? null;
       if (total == null && lung != null && fib != null) total = Number(lung) + Number(fib);
 
       return res.json({
@@ -219,7 +229,7 @@ async function findMaskBaseDir(absDir) {
         pushIfExists(path.join(d, 'segmentaciones_por_dicom'));
       }
     }
-  } catch {}
+  } catch { }
 
   for (const cand of candidates) {
     try {
@@ -229,7 +239,7 @@ async function findMaskBaseDir(absDir) {
         console.log('[POST-SEG] mask base dir =', cand);
         return cand;
       }
-    } catch {}
+    } catch { }
   }
   console.warn('[POST-SEG] No se encontró carpeta con mask_*.json bajo', absDir);
   return null;
@@ -241,7 +251,7 @@ async function guardarMascarasEnBDFromDir(absDir, nss, fechaSQL) {
     try {
       const sample = await fsp.readdir(absDir);
       console.warn('[POST-SEG] sample tmpDir:', sample.slice(0, 30));
-    } catch {}
+    } catch { }
     return;
   }
 
@@ -256,10 +266,10 @@ async function guardarMascarasEnBDFromDir(absDir, nss, fechaSQL) {
     const m = name.match(/^mask_(\d+)(?:_simplified)?\.json$/i);
     return m ? parseInt(m[1], 10) : NaN;
   };
-  const indices = Array.from(new Set(all.map(idxOf).filter(Number.isFinite))).sort((a,b)=>a-b);
-  const tryPath = (i, suffix='') => {
-    const p3 = path.join(segmentDir, `mask_${String(i).padStart(3,'0')}${suffix}.json`);
-    const p4 = path.join(segmentDir, `mask_${String(i).padStart(4,'0')}${suffix}.json`);
+  const indices = Array.from(new Set(all.map(idxOf).filter(Number.isFinite))).sort((a, b) => a - b);
+  const tryPath = (i, suffix = '') => {
+    const p3 = path.join(segmentDir, `mask_${String(i).padStart(3, '0')}${suffix}.json`);
+    const p4 = path.join(segmentDir, `mask_${String(i).padStart(4, '0')}${suffix}.json`);
     if (fs.existsSync(p3)) return p3;
     if (fs.existsSync(p4)) return p4;
     return null;
@@ -273,9 +283,19 @@ async function guardarMascarasEnBDFromDir(absDir, nss, fechaSQL) {
     if (aPath) {
       const j = readJSONMaybe(aPath) || {};
       const lung = j?.lung ?? [];
-      const fib  = j?.fibrosis ?? [];
-      await upsertMascaraAsync({ nss, fechaSQL, num_tomo, tipo: 'automatica', clase: 'pulmon',  payload: { lung } });
-      await upsertMascaraAsync({ nss, fechaSQL, num_tomo, tipo: 'automatica', clase: 'fibrosis', payload: { fibrosis: fib } });
+      const fib = j?.fibrosis ?? [];
+      try {
+        await upsertMascaraAsync({ nss, fechaSQL, num_tomo, tipo: 'automatica', clase: 'pulmon', payload: { lung } });
+      }
+      catch (e) {
+        logger.error('[POST-SEG] Error guardando máscara automática pulmon %s/%s/%s: %s', nss, fechaSQL, num_tomo, e.message);
+      }
+      try {
+        await upsertMascaraAsync({ nss, fechaSQL, num_tomo, tipo: 'automatica', clase: 'fibrosis', payload: { fibrosis: fib } });
+      }
+      catch (e) {
+        logger.error('[POST-SEG] Error guardando máscara automática fibrosis %s/%s/%s: %s', nss, fechaSQL, num_tomo, e.message);
+      }
     }
 
     // manual (simplified)
@@ -283,8 +303,8 @@ async function guardarMascarasEnBDFromDir(absDir, nss, fechaSQL) {
     if (mPath) {
       const j = readJSONMaybe(mPath) || {};
       const lung = j?.lung_editable ?? [];
-      const fib  = j?.fibrosis_editable ?? [];
-      await upsertMascaraAsync({ nss, fechaSQL, num_tomo, tipo: 'manual', clase: 'pulmon',  payload: { lung_editable: lung } });
+      const fib = j?.fibrosis_editable ?? [];
+      await upsertMascaraAsync({ nss, fechaSQL, num_tomo, tipo: 'manual', clase: 'pulmon', payload: { lung_editable: lung } });
       await upsertMascaraAsync({ nss, fechaSQL, num_tomo, tipo: 'manual', clase: 'fibrosis', payload: { fibrosis_editable: fib } });
     }
   }
@@ -311,7 +331,7 @@ async function updateEstudioVolumenFromDir(absDir, nss, fechaSQL) {
         candidates.push(path.join(d, 'segmentaciones_por_dicom', 'volumenes.json'));
       }
     }
-  } catch {}
+  } catch { }
 
   let volFile = null;
   for (const c of candidates) {
@@ -325,7 +345,7 @@ async function updateEstudioVolumenFromDir(absDir, nss, fechaSQL) {
   try {
     const raw = await fsp.readFile(volFile, 'utf8');
     const j = JSON.parse(raw);
-    const lung  = Number(j?.lung_volume_ml);
+    const lung = Number(j?.lung_volume_ml);
     const fibro = Number(j?.fibrosis_volume_ml);
     const total = Number(j?.total_volume_ml);
 
@@ -336,7 +356,7 @@ async function updateEstudioVolumenFromDir(absDir, nss, fechaSQL) {
 
     const sets = ['volumen_automatico=?'];
     const vals = [total];
-    if (Number.isFinite(lung))  { sets.push('volumen_pulmon_automatico=?');   vals.push(lung); }
+    if (Number.isFinite(lung)) { sets.push('volumen_pulmon_automatico=?'); vals.push(lung); }
     if (Number.isFinite(fibro)) { sets.push('volumen_fibrosis_automatico=?'); vals.push(fibro); }
 
     const sql = `UPDATE estudio SET ${sets.join(', ')} WHERE nss_expediente=? AND fecha=?`;
@@ -421,7 +441,7 @@ router.get('/mask-json/:folder/:name', async (req, res) => {
 
       for (const r of rows) {
         let data = r.coordenadas;
-        try { if (typeof data === 'string') data = JSON.parse(data); } catch {}
+        try { if (typeof data === 'string') data = JSON.parse(data); } catch { }
         if (wantSimplified) {
           if (r.clase === 'pulmon' && Array.isArray(data?.lung_editable)) out.lung_editable = data.lung_editable;
           if (r.clase === 'fibrosis' && Array.isArray(data?.fibrosis_editable)) out.fibrosis_editable = data.fibrosis_editable;
@@ -473,8 +493,8 @@ router.get('/status/:folder', async (req, res) => {
     });
 
     const lung = vols?.volumen_pulmon_manual ?? vols?.volumen_pulmon_automatico ?? null;
-    const fib  = vols?.volumen_fibrosis_manual ?? vols?.volumen_fibrosis_automatico ?? null;
-    let total  = vols?.volumen_manual ?? vols?.volumen_automatico ?? null;
+    const fib = vols?.volumen_fibrosis_manual ?? vols?.volumen_fibrosis_automatico ?? null;
+    let total = vols?.volumen_manual ?? vols?.volumen_automatico ?? null;
     if (total == null && lung != null && fib != null) total = Number(lung) + Number(fib);
 
     const volumeAvailable = (total != null) || (lung != null) || (fib != null);
@@ -497,7 +517,7 @@ router.get('/status/:folder', async (req, res) => {
       volume: {
         total_auto: total != null ? Number(total) : null,
         pulm_auto: lung != null ? Number(lung) : null,
-        fib_auto:  fib  != null ? Number(fib)  : null
+        fib_auto: fib != null ? Number(fib) : null
       },
       nss: parsed.nss,
       fecha: parsed.fechaSQL,
