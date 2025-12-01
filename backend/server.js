@@ -94,6 +94,12 @@ process.on("unhandledRejection", (reason) => {
   });
 });
 
+// Global middleware (Express) error handler
+app.use((err, req, res, next) => {
+  logger.error(`HTTP ${err.status || 500} - ${err.message}`);
+  res.status(err.status || 500).send(err.message || 'Error interno del servidor');
+});
+
 // -------- Arranque --------
 app.listen(PORT, HOST, () => {
   logger.info(`Servidor backend arrancado en http://${HOST}:${PORT}`);

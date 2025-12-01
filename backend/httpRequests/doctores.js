@@ -20,6 +20,9 @@
  *
  * La existencia de un admin es **requisito previo** para crear doctores.
  */
+const path = require('path');
+const logger = require(path.join(__dirname, '../../logging/logger'));
+
 const db = require('../connectionDb');
 const ENDPOINT = '/doctores';
 
@@ -28,7 +31,7 @@ const key = process.env.ENCRYPTION_KEY;
 
 module.exports = (app) => {
   // Crear un nuevo doctor
-  app.post(ENDPOINT, (req, res) => {
+  app.post(ENDPOINT, (req, res, next) => {
     /**
      * El cuerpo de la solicitud debe tener la estructura:
      * {
@@ -51,26 +54,29 @@ module.exports = (app) => {
     const query = 'INSERT INTO doctor (id, nombre_doc, contrasena_doc, id_adminCreador, fecha_creacion) VALUES (?, ?, AES_ENCRYPT(?, ?), ?, now())';
     db.query(query, [id, nombre, contrasena, key, idAdminCreador], (err, results) => {
       if (err) {
-        console.error(err);
-        return res.status(500).send('Error al crear el doctor');
+        err.status = 500; // Agregar el código de estado
+        err.message = `${err.message || ''} - Error al crear el doctor`; // Concatenar el mensaje existente con uno personalizado
+        return next(err); // Pasar el error al middleware
       }
+      logger.info(`Doctor creado con ID: ${id} por admin: ${idAdminCreador}`);
       res.status(201).send('Doctor creado exitosamente');
     });
   });
 
   // Obtener todos los doctores
-  app.get(ENDPOINT, (req, res) => {
+  app.get(ENDPOINT, (req, res, next) => {
     db.query('SELECT * FROM doctor', (err, results) => {
       if (err) {
-        console.log(err);
-        return res.status(500).send(err);
+        err.status = 500; // Opcional: asignar un código de estado
+        err.message = `HTTP ${err.status} - ${err.message || ''} - Error al obtener doctores`; // Concatenar el mensaje existente con uno personalizado
+        return next(err); // Pasar el error al middleware
       }
       res.json(results);
     });
   });
 
   // Buscar un doctor por ID
-  app.get(`${ENDPOINT}/:id`, (req, res) => {
+  app.get(`${ENDPOINT}/:id`, (req, res, next) => {
     const { id } = req.params; // Extraer el parámetro de la URL
     if (!id) {
       return res.status(400).send('Falta el ID del doctor');
@@ -78,8 +84,9 @@ module.exports = (app) => {
     const query = 'SELECT * FROM doctor WHERE id = ?';
     db.query(query, [id], (err, results) => {
       if (err) {
-        console.error(err);
-        return res.status(500).send('Error al buscar el doctor');
+        err.status = 500;
+        err.message = `HTTP ${err.status} - ${err.message || ''} - Error al buscar el doctor por ID`;
+        return next(err);
       }
       if (results.length === 0) {
         return res.status(404).send('Doctor no encontrado');
@@ -89,7 +96,7 @@ module.exports = (app) => {
   });
 
   // Buscar un doctor por nombre
-  app.get(`${ENDPOINT}/nombre/:nombre`, (req, res) => {
+  app.get(`${ENDPOINT}/nombre/:nombre`, (req, res, next) => {
     const { nombre } = req.params; // Extraer el parámetro de la URL
     if (!nombre) {
       return res.status(400).send('Falta el nombre del doctor');
@@ -97,8 +104,9 @@ module.exports = (app) => {
     const query = 'SELECT * FROM doctor WHERE nombre_doc LIKE ?';
     db.query(query, [`%${nombre}%`], (err, results) => {
       if (err) {
-        console.error(err);
-        return res.status(500).send('Error al buscar el doctor');
+        err.status = 500;
+        err.message = `HTTP ${err.status} - ${err.message || ''} - Error al buscar el doctor por nombre`;
+        return next(err);
       }
       if (results.length === 0) {
         return res.status(404).send('No se encontraron doctores con ese nombre');
@@ -108,7 +116,7 @@ module.exports = (app) => {
   });
 
   // Cambiar el estado de un doctor (activo1, inactivo0) (Borrado lógico)
-  app.patch(`${ENDPOINT}/:id`, (req, res) => {
+  app.patch(`${ENDPOINT}/:id`, (req, res, next) => {
     const { id } = req.params;
     if (!id) {
       return res.status(400).send('Falta el ID del doctor');
@@ -117,8 +125,9 @@ module.exports = (app) => {
     // 1. Obtener el estado actual
     db.query('SELECT activo FROM doctor WHERE id = ?', [id], (err, results) => {
       if (err) {
-        console.error(err);
-        return res.status(500).send('Error al consultar el estado actual');
+        err.status = 500;
+        err.message = `HTTP ${err.status} - ${err.message || ''} - Error al buscar al consultar el estado actual`;
+        return next(err);
       }
       if (results.length === 0) {
         return res.status(404).send('Doctor no encontrado');
@@ -130,8 +139,9 @@ module.exports = (app) => {
       // 2. Actualizar el estado
       db.query('UPDATE doctor SET activo = ? WHERE id = ?', [nuevoEstado, id], (err2) => {
         if (err2) {
-          console.error(err2);
-          return res.status(500).send('Error al actualizar el estado');
+          err2.status = 500;
+          err2.message = `HTTP ${err2.status} - ${err2.message || ''} - Error al actualizar el estado del doctor`;
+          return next(err2);
         }
         res.json({ id, nuevoEstado });
       });
