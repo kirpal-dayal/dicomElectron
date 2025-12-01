@@ -29,6 +29,8 @@
  *   "role": "doctor"
  * }
  */
+const path = require('path');
+const logger = require(path.join(__dirname, '../../logging/logger'));
 
 const express = require('express');
 const router = express.Router();
@@ -36,9 +38,9 @@ const db = require('../connectionDb');
 require('dotenv').config();
 const key = process.env.ENCRYPTION_KEY;
 
-router.post('/login', (req, res) => {
+router.post('/login', (req, res, next) => {
   const { id, password } = req.body;
-  console.log(' Intentando login con:', id, password);
+  //console.log(' Intentando login con:', id, password);
 
   if (!id || !password) {
     console.log(' Faltan campos');
@@ -57,11 +59,12 @@ router.post('/login', (req, res) => {
   `;
   db.query(adminQuery, [id, password, key], (err, adminResults) => {
     if (err) {
-      console.error(' Error consultando admin:', err);
-      return res.status(500).send('Error al consultar admin');
+      err.status = 500; // Opcional: asignar un código de estado
+      err.message = `HTTP ${err.status} - ${err.message || ''} - Error al consultar admin`;
+      return next(err); // Pasar el error al middleware
     }
     if (adminResults.length > 0) {
-      console.log(' Admin encontrado:', adminResults[0]);
+      //console.log(' Admin encontrado:', adminResults[0]);
       return res.json({
         id: adminResults[0].id,
         username: adminResults[0].username,
@@ -81,8 +84,9 @@ router.post('/login', (req, res) => {
   `;
     db.query(doctorQuery, [id, password, key], (err, doctorResults) => {
       if (err) {
-        console.error(' Error consultando doctor:', err);
-        return res.status(500).send('Error al consultar doctor');
+        err.status = 500;
+        err.message = `HTTP ${err.status} - ${err.message || ''} - Error al consultar doctor`;
+        return next(err);
       }
       if (doctorResults.length > 0) {
         console.log(' Doctor encontrado:', doctorResults[0]);
@@ -93,7 +97,7 @@ router.post('/login', (req, res) => {
         });
       }
 
-      console.log(' No se encontraron ni admin ni doctor activos');
+      //console.log(' No se encontraron ni admin ni doctor activos');
       return res.status(401).send('Usuario o contraseña incorrectos');
     });
   });
