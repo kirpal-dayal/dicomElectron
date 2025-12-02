@@ -3,6 +3,9 @@
  * Rutas para máscaras y volúmenes (lee preferentemente desde BD).
  * Ajustado al esquema fibrosis_v06 actual (sin volumen_json_automatico).
  */
+
+//se le agregaron logs pero se evitó el uso de next() para evitar problemas con el componente de react, que se cree, espera errores en json
+
 const express = require('express');
 const router = express.Router();
 const path = require('path');
@@ -77,9 +80,9 @@ function normalizeCoords(rowPulmon, rowFibrosis) {
   const use = (row, kind) => {
     if (!row) return;
     let data = row.coordenadas;
-    try { if (typeof data === 'string') data = JSON.parse(data); } 
-    catch (e) { 
-      logger.error('[normalizeCoords] Error parsing JSON: %s', e.message); 
+    try { if (typeof data === 'string') data = JSON.parse(data); }
+    catch (e) {
+      logger.error('[normalizeCoords] Error parsing JSON: %s', e.message);
       //return;
     }
     const lung = data?.lung ?? data?.lung_editable ?? [];
@@ -106,7 +109,9 @@ router.get('/volumen/:folder', async (req, res, next) => {
     const err = new Error('folder inválido');
     err.status = 400;
     err.message = `HTTP ${err.status} - ${err.message || ''} - Error al parsear folder`;
-    return next(err);
+    logger.warn('[volumen] %s', err.message);
+    //return next(err);
+    return res.status(400).json({ error: 'folder inválido' });
   }
 
   try {
@@ -122,7 +127,7 @@ router.get('/volumen/:folder', async (req, res, next) => {
        LIMIT 1`;
     db.query(sql, [parsed.nss, parsed.fechaSQL], async (err, rows) => {
       if (err) {
-        console.error('[volumen] DB error:', err);
+        logger.error('[volumen] DB error: %s', err.message);
         return res.status(500).json({ error: 'DB error' });
       }
       if (!rows || !rows.length) {
@@ -130,7 +135,13 @@ router.get('/volumen/:folder', async (req, res, next) => {
         const volPathA = path.join(__dirname, '..', 'temp', req.params.folder, 'segmentaciones_por_dicom', 'volumenes.json');
         const volPathB = path.join(__dirname, '..', 'temp', req.params.folder, 'volumenes.json');
         const candidate = fs.existsSync(volPathA) ? volPathA : (fs.existsSync(volPathB) ? volPathB : null);
-        if (!candidate) return res.status(404).json({ error: 'Volumen no disponible aún' });
+        if (!candidate) {
+          err.status = 404;
+          err.message = `HTTP ${err.status} - ${err.message || ''} Volumen no disponible aún`;
+          //return next(err);
+          logger.warn(`[volumen] volumenes.json no encontrado en ${volPathA} ni ${volPathB}: ${err.message}`);
+          return res.status(404).json({ error: 'Volumen no disponible aún' });
+        }
         try {
           const data = JSON.parse(await fsp.readFile(candidate, 'utf8'));
           return res.json({
@@ -139,7 +150,9 @@ router.get('/volumen/:folder', async (req, res, next) => {
             total_volume_ml: Number(data?.total_volume_ml) || null,
           });
         } catch (e) {
-          console.error('[volumen] error leyendo archivo:', e);
+          e.status = 500;
+          e.message = `HTTP ${e.status} - ${e.message || ''} - Error leyendo volumenes.json`;
+          logger.error(e.message);
           return res.status(500).json({ error: 'Error interno al leer volúmenes.' });
         }
       }
@@ -157,16 +170,20 @@ router.get('/volumen/:folder', async (req, res, next) => {
       });
     });
   } catch (e) {
-    console.error('[volumen] error:', e);
+    e.status = 500;
+    e.message = `HTTP ${e.status} - ${e.message || ''} - Error procesando volumen`;
+    logger.error(e.message);
     return res.status(500).json({ error: 'Error interno' });
   }
 });
 
 // Indices válidos (slices) que tienen máscaras en BD
-router.get("/valid-indices/:folder", (req, res) => {
+router.get("/valid-indices/:folder", (req, res, next) => {
   const parsed = parseFolder(req.params.folder);
-  if (!parsed) return res.status(400).json({ error: "folder inválido" });
-
+  if (!parsed) {
+    logger.warn('[volumen] folder inválido: %s', req.params.folder);
+    return res.status(400).json({ error: 'folder inválido' });
+  }
   const sql = `
     SELECT DISTINCT num_tomo
       FROM mascara
@@ -176,7 +193,9 @@ router.get("/valid-indices/:folder", (req, res) => {
      ORDER BY num_tomo ASC`;
   db.query(sql, [parsed.nss, parsed.fechaSQL], (err, rows) => {
     if (err) {
-      console.error('[valid-indices] DB error:', err);
+      err.status = 500;
+      err.message = `HTTP ${err.status} - ${err.message || ''} - Error consultando índices válidos`;
+      logger.error(err.message);
       return res.status(500).json({ error: 'DB error' });
     }
     const map = {};
@@ -201,7 +220,9 @@ router.get('/mask-db-by-folder/:folder/:index', (req, res) => {
        AND tipo IN ('manual','automatica')`;
   db.query(sql, [parsed.nss, parsed.fechaSQL, num_tomo], (err, rows) => {
     if (err) {
-      console.error('[mask-db-by-folder] DB error:', err);
+      err.status = 500;
+      err.message = `HTTP ${err.status} - ${err.message || ''} - Error consultando máscara: [mask-db-by-folder] DB error`;
+      logger.error(err.message);
       return res.status(500).json({ error: 'DB error' });
     }
     if (!rows || !rows.length) {
@@ -229,7 +250,12 @@ async function findMaskBaseDir(absDir) {
         pushIfExists(path.join(d, 'segmentaciones_por_dicom'));
       }
     }
-  } catch { }
+  } catch (e) {
+    e.status = 500;
+    e.message = `HTTP ${e.status} - ${e.message || ''} - Error buscando máscara base dir`;
+    logger.error(e.message);
+    //return res.status(500).json({ error: 'Error interno' });
+  }
 
   for (const cand of candidates) {
     try {
@@ -239,9 +265,13 @@ async function findMaskBaseDir(absDir) {
         console.log('[POST-SEG] mask base dir =', cand);
         return cand;
       }
-    } catch { }
+    } catch (e) {
+      e.status = 500;
+      e.message = `HTTP ${e.status} - ${e.message || ''} - Error procesando volumen`;
+      next(e);
+    }
   }
-  console.warn('[POST-SEG] No se encontró carpeta con mask_*.json bajo', absDir);
+  logger.warn('[POST-SEG] No se encontró carpeta con mask_*.json bajo', absDir);
   return null;
 }
 
@@ -250,8 +280,10 @@ async function guardarMascarasEnBDFromDir(absDir, nss, fechaSQL) {
   if (!segmentDir) {
     try {
       const sample = await fsp.readdir(absDir);
-      console.warn('[POST-SEG] sample tmpDir:', sample.slice(0, 30));
-    } catch { }
+      logger.info('[POST-SEG] sample tmpDir:', sample.slice(0, 30));
+    } catch (err) {
+      logger.error('[POST-SEG] Error leyendo tmpDir:', err.message);
+    }
     return;
   }
 
@@ -309,7 +341,7 @@ async function guardarMascarasEnBDFromDir(absDir, nss, fechaSQL) {
     }
   }
 
-  console.log('[POST-SEG] Máscaras volcadas a BD desde', segmentDir);
+  logger.info('[POST-SEG] Máscaras volcadas a BD desde', segmentDir);
 }
 
 /**
@@ -331,14 +363,16 @@ async function updateEstudioVolumenFromDir(absDir, nss, fechaSQL) {
         candidates.push(path.join(d, 'segmentaciones_por_dicom', 'volumenes.json'));
       }
     }
-  } catch { }
+  } catch (err) { 
+    logger.error('[POST-SEG] Error buscando volumenes.json:', err.message);
+   }
 
   let volFile = null;
   for (const c of candidates) {
     if (fs.existsSync(c)) { volFile = c; break; }
   }
   if (!volFile) {
-    console.warn('[POST-SEG] volumenes.json no encontrado');
+    logger.warn('[POST-SEG] volumenes.json no encontrado');
     return;
   }
 
@@ -350,7 +384,7 @@ async function updateEstudioVolumenFromDir(absDir, nss, fechaSQL) {
     const total = Number(j?.total_volume_ml);
 
     if (!Number.isFinite(total)) {
-      console.warn('[POST-SEG] total_volume_ml inválido en', volFile);
+      logger.warn('[POST-SEG] total_volume_ml inválido en', volFile);
       return;
     }
 
@@ -366,11 +400,11 @@ async function updateEstudioVolumenFromDir(absDir, nss, fechaSQL) {
       db.query(sql, vals, (err) => err ? reject(err) : resolve());
     });
 
-    console.log('[POST-SEG] volúmenes (auto) actualizados →',
+    logger.info('[POST-SEG] volúmenes (auto) actualizados →',
       { total, lung: Number.isFinite(lung) ? lung : null, fibrosis: Number.isFinite(fibro) ? fibro : null },
       'desde', volFile);
   } catch (e) {
-    console.error('[POST-SEG] Error actualizando volúmenes:', e.message);
+    logger.error('[POST-SEG] Error actualizando volúmenes:', e.message);
   }
 }
 
@@ -399,12 +433,13 @@ router.post('/save-edit/:folder/:index', express.json(), async (req, res) => {
       tipo: 'manual', clase: 'fibrosis', payload: { fibrosis_editable }
     });
 
+    // Si se almacena como log es probable que genere demasiado tráfico en el logger
     console.log('[SAVE-EDIT] ok → nss=%s fecha=%s num_tomo=%s lungPts=%d fibPts=%d',
       parsed.nss, parsed.fechaSQL, num_tomo, lung_editable?.length || 0, fibrosis_editable?.length || 0);
 
     return res.json({ ok: true, num_tomo, lung_points: lung_editable.length, fibrosis_points: fibrosis_editable.length });
   } catch (e) {
-    console.error('[SAVE-EDIT] error:', e.message);
+    logger.error('[SAVE-EDIT] error:', e.message);
     return res.status(500).json({ error: 'Error guardando edición' });
   }
 });
@@ -429,10 +464,11 @@ router.get('/mask-json/:folder/:name', async (req, res) => {
     [parsed.nss, parsed.fechaSQL, num_tomo, tipo],
     (err, rows) => {
       if (err) {
-        console.error('[mask-json] DB error:', err);
+        logger.error('[mask-json] DB error:', err);
         return res.status(500).json({ error: 'DB error' });
       }
       if (!rows || rows.length === 0) {
+        logger.warn('[mask-json] No hay máscaras en BD para NSS: %s, Fecha: %s, num_tomo: %s', parsed.nss, parsed.fechaSQL, num_tomo);
         return res.status(404).json({ error: 'no hay máscaras en BD' });
       }
       const out = wantSimplified
@@ -441,7 +477,11 @@ router.get('/mask-json/:folder/:name', async (req, res) => {
 
       for (const r of rows) {
         let data = r.coordenadas;
-        try { if (typeof data === 'string') data = JSON.parse(data); } catch { }
+        try { if (typeof data === 'string') data = JSON.parse(data); } 
+        catch (err) { 
+            logger.error('[mask-json] Error parsing JSON:', err.message);  
+            //return; 
+          }
         if (wantSimplified) {
           if (r.clase === 'pulmon' && Array.isArray(data?.lung_editable)) out.lung_editable = data.lung_editable;
           if (r.clase === 'fibrosis' && Array.isArray(data?.fibrosis_editable)) out.fibrosis_editable = data.fibrosis_editable;
@@ -523,8 +563,10 @@ router.get('/status/:folder', async (req, res) => {
       fecha: parsed.fechaSQL,
     });
   } catch (e) {
-    console.error('[STATUS] error:', e.message);
-    res.status(500).json({ error: 'Error consultando estado' });
+    e.status = 500;
+    e.message = `HTTP ${e.status} - ${e.message || ''} - Error consultando estado / progreso de volcado/segmentación`;
+    logger.error(e.message);
+    return res.status(500).json({ error: 'Error consultando estado' });
   }
 });
 
