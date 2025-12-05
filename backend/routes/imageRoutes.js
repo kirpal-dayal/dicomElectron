@@ -253,7 +253,7 @@ router.get('/dicom-list/:folder', (req, res) => {
         return res.status(500).json({ error: 'DB error' });
       }
       const files = (rows || []).map(r => `IM_${String(r.num_tomo).padStart(4, '0')}.dcm`);
-      logger.info('[DICOM-LIST] count: %d', files.length);
+      //logger.info('[DICOM-LIST] count: %d', files.length);
       res.json(files);
     }
   );
