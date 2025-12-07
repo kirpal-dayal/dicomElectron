@@ -7,8 +7,8 @@ import React, { useEffect, useRef, useState, useLayoutEffect, useCallback } from
 import { useParams, useNavigate } from "react-router-dom";
 import axios from "axios";
 import * as cornerstone from "cornerstone-core";
-import * as cornerstoneWADOImageLoader from "cornerstone-wado-image-loader";
 import * as dicomParser from "dicom-parser";
+import cornerstoneWADOImageLoader from "cornerstone-wado-image-loader";
 
 import {
   extractSpacingFromImage,
@@ -20,6 +20,17 @@ import {
 cornerstoneWADOImageLoader.external.cornerstone = cornerstone;
 cornerstoneWADOImageLoader.external.dicomParser = dicomParser;
 cornerstoneWADOImageLoader.configure({ beforeSend: () => {} });
+
+const wado = cornerstoneWADOImageLoader.wadouri || cornerstoneWADOImageLoader.wadors;
+const provider =
+  wado?.metaData?.metaDataProvider ||   // 
+  wado?.metaDataProvider;              // (fallback por si tu versión vieja lo expone distinto)
+
+if (provider) {
+  cornerstone.metaData.addProvider(provider);
+} else {
+  console.warn("[Cornerstone] No WADO metaDataProvider; revisa versión/import.");
+}
 
 // ---------- helpers ----------
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -110,6 +121,16 @@ export default function StudyView() {
   const folder = `${nss}_${safeFecha}`;
   const navigate = useNavigate();
 
+  const normalizeBaseName = (name) => {
+  if (!name) return "";
+  let s = String(name);
+
+  try { s = decodeURIComponent(s); } catch {}
+  // por si viene como "SERIE1/IMG0001.dcm" o "SERIE1\\IMG0001.dcm"
+  s = s.split(/[\/\\]/).pop();
+  return s;
+  };
+
   const viewerRef = useRef(null);
   const overlayRef = useRef(null);
 
@@ -191,18 +212,142 @@ export default function StudyView() {
 }, []);
 
   // ---------- Cargar lista DICOM ----------
-  useEffect(() => {
-    axios
-      .get(`/api/image/dicom-list/${folder}`)
-      .then(({ data }) => {
-        const urls = data.map(
-          (file) => `/api/image/dicom/${folder}/${encodeURIComponent(file)}`
-        );
-        setDicomList(urls);
-      })
-      .catch(() => setError("No se pudieron obtener los archivos DICOM."))
-      .finally(() => setLoading(false));
-  }, [folder]);
+useEffect(() => {
+  let cancelled = false;
+
+  (async () => {
+    try {
+      const { data: files } = await axios.get(`/api/image/dicom-list/${folder}`);
+      let finalFiles = files;
+
+      let validIndexMap = null;
+      try {
+        const { data } = await axios.get(`/api/segment/valid-indices/${folder}`);
+        validIndexMap = data;
+      } catch {
+        validIndexMap = null;
+      }
+
+      const hasStringValues =
+        validIndexMap && Object.values(validIndexMap).some((v) => typeof v === "string");
+
+      if (hasStringValues) {
+        const filesByBase = new Map();
+        files.forEach((relPath) => {
+          const base = normalizeBaseName(relPath);
+          if (!filesByBase.has(base)) filesByBase.set(base, relPath);
+        });
+
+        const orderedFromSeg = Object.entries(validIndexMap)
+          .sort((a, b) => Number(a[0]) - Number(b[0]))
+          .map(([, nameFromSeg]) => filesByBase.get(normalizeBaseName(nameFromSeg)) || null)
+          .filter(Boolean);
+
+        const used = new Set(orderedFromSeg);
+        const extras = files.filter((f) => !used.has(f));
+        finalFiles = [...orderedFromSeg, ...extras];
+      }
+
+      // URLs relativas (SIN origin)
+      const urls = finalFiles.map(
+        (file) => `/api/image/dicom/${folder}/${encodeURIComponent(file)}`
+      );
+
+      // ✅ ORDEN FINAL por meta (IPP/IOP + auto-inversión si hace falta)
+      const finalSorted = await sortDicomsByMeta(urls);
+
+      if (!cancelled) {
+        setDicomList(finalSorted);
+        // opcional: auto-seleccionar primera imagen
+        if (finalSorted.length > 0) setSelectedIndex(0);
+        console.log("FIRST/LAST", finalSorted[0], finalSorted[finalSorted.length - 1]);
+      }
+    } catch (err) {
+      console.error(err);
+      if (!cancelled) setError("No se pudieron obtener los archivos DICOM.");
+    } finally {
+      if (!cancelled) setLoading(false);
+    }
+  })();
+
+  return () => { cancelled = true; };
+}, [folder]);
+
+
+async function sortDicomsByMeta(dicomUrls) {
+  const origin = window.location.origin;
+
+  const getNameNum = (u) => {
+    try {
+      const base = decodeURIComponent((u.split("/").pop() || ""));
+      const m = base.match(/(\d+)\.dcm$/i) || base.match(/IM_(\d+)/i);
+      return m ? Number(m[1]) : NaN;
+    } catch {
+      return NaN;
+    }
+  };
+
+  const scoreTrend = (arr, getVal) => {
+    let s = 0;
+    for (let i = 1; i < arr.length; i++) {
+      const a = getVal(arr[i - 1]);
+      const b = getVal(arr[i]);
+      if (Number.isFinite(a) && Number.isFinite(b)) {
+        if (b > a) s++;
+        else if (b < a) s--;
+      }
+    }
+    return s;
+  };
+
+  const items = await Promise.all(
+    dicomUrls.map(async (u, idx) => {
+      const imageId = `wadouri:${origin}${u}`;
+      const img = await cornerstone.loadAndCacheImage(imageId);
+
+      const inst = Number(img?.data?.string?.("x00200013")); // InstanceNumber
+      const ippStr = img?.data?.string?.("x00200032");       // ImagePositionPatient
+      const iopStr = img?.data?.string?.("x00200037");       // ImageOrientationPatient
+
+      const ipp = ippStr?.split("\\").map(Number);
+      const iop = iopStr?.split("\\").map(Number);
+
+      // fallback: si no hay ipp/iop, usamos instance o filename o idx
+      if (!ipp || ipp.length < 3 || !iop || iop.length < 6) {
+        const nameNum = getNameNum(u);
+        const key = Number.isFinite(inst) ? inst : (Number.isFinite(nameNum) ? nameNum : idx);
+        return { u, idx, key, inst, nameNum };
+      }
+
+      const row = iop.slice(0, 3), col = iop.slice(3, 6);
+      const normal = [
+        row[1] * col[2] - row[2] * col[1],
+        row[2] * col[0] - row[0] * col[2],
+        row[0] * col[1] - row[1] * col[0],
+      ];
+      const pos = ipp[0] * normal[0] + ipp[1] * normal[1] + ipp[2] * normal[2];
+
+      return { u, idx, key: pos, inst, nameNum: getNameNum(u) };
+    })
+  );
+
+  // 1) orden primario por posición (o key fallback)
+  items.sort((a, b) => a.key - b.key);
+
+  // 2) si el “trend” va bajando, invertimos
+  const instTrend = scoreTrend(items, (x) => x.inst);
+  const nameTrend = scoreTrend(items, (x) => x.nameNum);
+
+  // Si InstanceNumber está mayormente decreciendo (o no hay inst pero filename decrece) => reverse
+  if (instTrend < 0 || (instTrend === 0 && nameTrend < 0)) {
+    items.reverse();
+  }
+
+  return items.map((x) => x.u);
+}
+
+
+
 
   // ---------- Spacing global al tener dicomList ----------
   useEffect(() => {
@@ -221,55 +366,40 @@ export default function StudyView() {
   }, [dicomList]);
 
   // ---------- Mostrar imagen seleccionada ----------
+// ---------- Mostrar imagen seleccionada (SOLO cuando cambia el slice) ----------
 useEffect(() => {
   const element = viewerRef.current;
   if (!element || selectedIndex === null || !dicomList[selectedIndex]) return;
 
-  // 1) habilitar de forma segura
-  let isEnabled = true;
+  // asegurar enabled
   try { cornerstone.getEnabledElement(element); }
-  catch { isEnabled = false; }
-  if (!isEnabled) {
-    cornerstone.enable(element);
-    isViewerEnabledRef.current = true;
-  }
+  catch { cornerstone.enable(element); }
 
-  // 2) cargar y mostrar
+  let cancelled = false;
+
   const imageId = `wadouri:${window.location.origin}${dicomList[selectedIndex]}`;
+
   cornerstone.loadAndCacheImage(imageId)
     .then((image) => {
+      if (cancelled) return;
+
       cornerstone.displayImage(element, image);
 
-      const { pixelSpacing } = extractSpacingFromImage(image) || {};
-      setDicomSpacing(prev => ({
-        row: Number.isFinite(prev.row) && prev.row > 0 ? prev.row : (Number(pixelSpacing?.row) || 1),
-        col: Number.isFinite(prev.col) && prev.col > 0 ? prev.col : (Number(pixelSpacing?.col) || 1),
-        slice: Number.isFinite(prev.slice) && prev.slice > 0 ? prev.slice : 1,
-      }));
+      // aplicar viewport inicial (zoom + VOI) SIN volver a recargar después
+      try {
+        const vp = cornerstone.getViewport(element);
+        vp.scale = scale;
+        vp.voi = { windowCenter, windowWidth: Math.max(1, windowWidth) };
+        cornerstone.setViewport(element, vp);
+      } catch {}
 
-      const vp = cornerstone.getDefaultViewportForImage(element, image);
-      vp.scale = scale;
-      const imgWL = num(image.windowCenter, -600);
-      const imgWW = Math.max(1, num(image.windowWidth, 1500));
-      vp.voi = {
-        windowCenter: Number.isFinite(windowCenter) ? windowCenter : imgWL,
-        windowWidth:  Number.isFinite(windowWidth)  ? windowWidth  : imgWW,
-      };
-      cornerstone.setViewport(element, vp);
       drawOverlayLines();
     })
     .catch((err) => console.error("Error al cargar imagen:", err));
 
-  // 3) MUY IMPORTANTE: cleanup del MISMO elemento que habilitaste
-  return () => {
-    try {
-      // opcional: limpia viewport antes de deshabilitar
-      try { cornerstone.reset(element); } catch {}
-      cornerstone.disable(element);
-    } catch {}
-    isViewerEnabledRef.current = false;
-  };
-}, [selectedIndex, dicomList, scale, windowCenter, windowWidth]);
+  return () => { cancelled = true; };
+}, [selectedIndex, dicomList]);
+
 
   // Redibuja en cambios de layers/zoom/slice
   useEffect(() => {
@@ -279,21 +409,45 @@ useEffect(() => {
   }, [layers, scale, selectedIndex]);
 
   // Aplicar VOI al cambiar sliders
-  useEffect(() => {
-    const el = viewerRef.current;
-    if (!el || selectedIndex === null) return;
-    applyVOI(el, windowCenter, windowWidth);
-  }, [windowCenter, windowWidth, selectedIndex]);
+// A) Enable/Disable SOLO al abrir/cerrar overlay
+useEffect(() => {
+  const el = viewerRef.current;
+  if (!el) return;
+
+  if (selectedIndex !== null) {
+    try { cornerstone.getEnabledElement(el); }
+    catch { cornerstone.enable(el); }
+  } else {
+    try { cornerstone.disable(el); } catch {}
+  }
+}, [selectedIndex]);
+
+// B) Aplicar VOI (WL/WW) sin recargar imagen
+useEffect(() => {
+  const el = viewerRef.current;
+  if (!el || selectedIndex === null) return;
+  applyVOI(el, windowCenter, windowWidth);
+}, [windowCenter, windowWidth, selectedIndex]);
+
+// C) Aplicar zoom sin recargar imagen
+useEffect(() => {
+  const el = viewerRef.current;
+  if (!el || selectedIndex === null) return;
+  try {
+    const vp = cornerstone.getViewport(el);
+    vp.scale = scale;
+    cornerstone.setViewport(el, vp);
+    drawOverlayLines();
+  } catch {}
+}, [scale, selectedIndex]);
+
 
 useEffect(() => {
   return () => {
-    const el = viewerRef.current;
-    if (el) {
-      try { cornerstone.disable(el); } catch {}
-    }
     isViewerEnabledRef.current = false;
   };
 }, []);
+
 
   // ---------- Cargar capas + volumen editable inicial ----------
 // helper chiquito para asegurar multi-contour en memoria
@@ -322,67 +476,170 @@ function clonePolygonsKeepingClosed(points) {
     return points.map((p) => ({ ...p }));
   }
 }
+  // --- mapping SEG <-> visor ---
+// Si tu backend guarda mask-json/XXX usando el orden inverso al visor,
+// cambia a true. Si no estás seguro, déjalo en false y prueba.
+const INVERT_SEG_INDEX = false;
 
+const segToViewerIndex = (segIdx, totalSlices) =>
+  INVERT_SEG_INDEX ? (totalSlices - 1 - segIdx) : segIdx;
+
+const viewerToSegIndex = (viewerIdx, totalSlices) =>
+  INVERT_SEG_INDEX ? (totalSlices - 1 - viewerIdx) : viewerIdx;
 
 const fetchAllEditableLayers = useCallback(async () => {
   try {
-    const { data: validIndexMap } = await axios.get(`/api/segment/valid-indices/${folder}`);
+    if (!dicomList || dicomList.length === 0) return;
+
+    const { data: validIndexMap } = await axios.get(
+      `/api/segment/valid-indices/${folder}`
+    );
 
     const totalSlices = dicomList.length;
+
+    if (!validIndexMap || Object.keys(validIndexMap).length === 0) {
+      setAllLayersPerSlice(new Array(totalSlices).fill(null));
+      setEditableVolumen(null);
+      return;
+    }
+
+    const baseNameFromDicomUrl = (url) => {
+      try {
+        const last = url.split("/").pop() || "";
+        const decoded = decodeURIComponent(last);
+        return normalizeBaseName(decoded);
+      } catch {
+        return "";
+      }
+    };
+
+    const fileIndexByName = new Map(
+      dicomList.map((url, idx) => [baseNameFromDicomUrl(url), idx])
+    );
+
     const layersPorSlice = new Array(totalSlices).fill(null);
 
+    const hasStringValues = Object.values(validIndexMap).some((v) => typeof v === "string");
+
     await Promise.all(
-      Object.entries(validIndexMap).map(async ([indexStr]) => {
-        const index = parseInt(indexStr, 10);
-        const padded = String(index).padStart(3, "0");
+      Object.entries(validIndexMap).map(async ([indexStr, value]) => {
+        const segIndex = parseInt(indexStr, 10);
+        if (!Number.isFinite(segIndex)) return;
+
+        // --- calcular viewerIndex según formato del validIndexMap ---
+        let viewerIndex = null;
+
+        if (hasStringValues && typeof value === "string") {
+          // Caso viejo: value es nombre de archivo
+          viewerIndex = fileIndexByName.get(normalizeBaseName(value));
+        } else {
+          // Caso actual: value es true/false (o truthy)
+          if (value !== true) return;
+          viewerIndex = segToViewerIndex(segIndex, totalSlices);
+        }
+
+        if (viewerIndex == null || viewerIndex < 0 || viewerIndex >= totalSlices) {
+          console.warn("[SEG] índice fuera de rango o sin DICOM:", { segIndex, value, viewerIndex });
+          return;
+        }
+
+        const padded = String(segIndex).padStart(3, "0");
 
         const [modelo, dbMask] = await Promise.all([
-          axios.get(`/api/segment/mask-json/${folder}/${padded}`).then(r => r.data).catch(() => null),
-          axios.get(`/api/segment/mask-db-by-folder/${folder}/${index}`).then(r => r.data).catch(async () => {
-            try {
-              const j = await axios.get(`/api/segment/mask-json/${folder}/${padded}_simplified`);
-              return { lung: j.data?.lung_editable || [], fibrosis: j.data?.fibrosis_editable || [] };
-            } catch { return null; }
-          }),
+          axios
+            .get(`/api/segment/mask-json/${folder}/${padded}`)
+            .then((r) => r.data)
+            .catch(() => null),
+
+          axios
+            .get(`/api/segment/mask-db-by-folder/${folder}/${segIndex}`)
+            .then((r) => r.data)
+            .catch(async () => {
+              try {
+                const j = await axios.get(`/api/segment/mask-json/${folder}/${padded}_simplified`);
+                return {
+                  lung: j.data?.lung_editable || [],
+                  fibrosis: j.data?.fibrosis_editable || [],
+                };
+              } catch {
+                return null;
+              }
+            }),
         ]);
 
         const L = [];
-        if (modelo) {
-          L.push({ name: "Pulmón (modelo)",   points: markClosed(toMulti(modelo.lung)),     visible: true, color: "lime",   closed: true, editable: false });
 
-          L.push({ name: "Fibrosis (modelo)", points: markClosed(toMulti(modelo.fibrosis)), visible: true, color: "red",    closed: true, editable: false });
+        if (modelo) {
+          L.push({
+            name: "Pulmón (modelo)",
+            points: markClosed(toMulti(modelo.lung)),
+            visible: true,
+            color: "lime",
+            closed: true,
+            editable: false,
+          });
+          L.push({
+            name: "Fibrosis (modelo)",
+            points: markClosed(toMulti(modelo.fibrosis)),
+            visible: true,
+            color: "red",
+            closed: true,
+            editable: false,
+          });
         }
 
         if (dbMask) {
-          L.push({ name: "Pulmón (editable)",   points: markClosed(toMulti(dbMask.lung)),     visible: true, color: "yellow", closed: true, editable: true  });
-          L.push({ name: "Fibrosis (editable)", points: markClosed(toMulti(dbMask.fibrosis)), visible: true, color: "orange", closed: true, editable: true  });
+          L.push({
+            name: "Pulmón (editable)",
+            points: markClosed(toMulti(dbMask.lung)),
+            visible: true,
+            color: "yellow",
+            closed: true,
+            editable: true,
+          });
+          L.push({
+            name: "Fibrosis (editable)",
+            points: markClosed(toMulti(dbMask.fibrosis)),
+            visible: true,
+            color: "orange",
+            closed: true,
+            editable: true,
+          });
         }
 
-        layersPorSlice[index] = L;
+        console.log("[MAP]", { segIndex, viewerIndex, dicom: dicomList[viewerIndex] });
+        layersPorSlice[viewerIndex] = L;
       })
     );
 
-    // recalcular spacing robusto si hace falta
+    // --- spacing robusto si hace falta ---
     let px = { row: Number(dicomSpacing.row), col: Number(dicomSpacing.col) };
     let dz = Number(dicomSpacing.slice);
-    if (!Number.isFinite(px.row) || !Number.isFinite(px.col) || !Number.isFinite(dz)) {
+
+    if (!Number.isFinite(px.row) || !Number.isFinite(px.col) || !Number.isFinite(dz) || dz <= 0) {
       const robust = await getRobustStackSpacing(dicomList);
       if (robust) {
         px = { row: robust.pixelSpacing.row, col: robust.pixelSpacing.col };
         dz = robust.sliceSpacing;
         setDicomSpacing({ row: px.row, col: px.col, slice: dz });
       } else {
-        px = { row: 1, col: 1 }; dz = 1;
+        px = { row: 1, col: 1 };
+        dz = 1;
       }
     }
 
     const volumenGlobal = calcularVolumenEditableGlobal(layersPorSlice, px, dz);
     setEditableVolumen(volumenGlobal);
     setAllLayersPerSlice(layersPorSlice);
+
+    console.log("validIndexMap", validIndexMap);
+    console.log("fileIndexByName", fileIndexByName);
+    console.log("layersPorSlice (non-null)", layersPorSlice.filter(Boolean).length);
   } catch (err) {
     console.error("Error al cargar capas:", err);
   }
 }, [folder, dicomList, dicomSpacing.row, dicomSpacing.col, dicomSpacing.slice]);
+
 
 // --------- Cargar capas + volumen inicial ---------
 // --- helper: asegurar multi-contour en memoria (lo tienes ya) ---
@@ -437,21 +694,37 @@ useEffect(() => {
   }, [dicomSpacing.row, dicomSpacing.col, dicomSpacing.slice]);
 
   useEffect(() => {
-    if (selectedIndex !== null && allLayersPerSlice[selectedIndex]) {
-      const sliceLayers = allLayersPerSlice[selectedIndex];
-      setLayers(sliceLayers);
-      recalcGlobalVolumeInstant(selectedIndex, sliceLayers);
+    if (selectedIndex === null) {
+      setLayers([]);
+      setSelectedLayerIndex(0);
+      return;
+    }
 
-      const firstEditable = sliceLayers.findIndex((l) => l.editable);
-      if (
-        selectedLayerIndex == null ||
-        !sliceLayers[selectedLayerIndex] ||
-        !sliceLayers[selectedLayerIndex].editable
-      ) {
-        if (firstEditable !== -1) setSelectedLayerIndex(firstEditable);
+    const sliceLayers = allLayersPerSlice[selectedIndex] || [];
+    console.log("[SLICE]", selectedIndex, "layers:", sliceLayers); // ← añade esto
+    setLayers(sliceLayers);
+
+    if (sliceLayers.length === 0) {
+      setSelectedLayerIndex(0);
+      return;
+    }
+
+    recalcGlobalVolumeInstant(selectedIndex, sliceLayers);
+
+    const firstEditable = sliceLayers.findIndex((l) => l.editable);
+    if (
+      selectedLayerIndex == null ||
+      !sliceLayers[selectedLayerIndex] ||
+      !sliceLayers[selectedLayerIndex].editable
+    ) {
+      if (firstEditable !== -1) {
+        setSelectedLayerIndex(firstEditable);
       }
     }
-  }, [selectedIndex, allLayersPerSlice, recalcGlobalVolumeInstant]); // eslint-disable-line
+  }, [selectedIndex, allLayersPerSlice, recalcGlobalVolumeInstant, selectedLayerIndex]);
+
+
+
 
   // ---------- Redibujo en render de imagen ----------
   useLayoutEffect(() => {
@@ -465,48 +738,50 @@ useEffect(() => {
   }, []);
 
   // ---------- Guardado + recálculo ----------
-  async function saveEditableJson(index, nextLayersForSlice = null) {
-    const paddedIndex = String(index).padStart(3, "0");
-    const currentLayers = nextLayersForSlice ?? layers;
+async function saveEditableJson(viewerIndex, nextLayersForSlice = null) {
+  const totalSlices = dicomList.length;
+  const segIndex = viewerToSegIndex(viewerIndex, totalSlices);
+  const paddedIndex = String(segIndex).padStart(3, "0");
 
-    const lungLayer = currentLayers.find((l) => l.name.includes("Pulmón") && l.editable);
-    const fibrosisLayer = currentLayers.find((l) => l.name.includes("Fibrosis") && l.editable);
+  const currentLayers = nextLayersForSlice ?? layers;
 
-    if (lungLayer && lungLayer.points && !Array.isArray(lungLayer.points[0])) {
-      lungLayer.points = [lungLayer.points];
-    }
-    if (fibrosisLayer && fibrosisLayer.points && !Array.isArray(fibrosisLayer.points[0])) {
-      fibrosisLayer.points = [fibrosisLayer.points];
-    }
+  const lungLayer = currentLayers.find((l) => l.name.includes("Pulmón") && l.editable);
+  const fibLayer  = currentLayers.find((l) => l.name.includes("Fibrosis") && l.editable);
 
-    const jsonData = {
-      lung_editable: lungLayer?.points || [],
-      fibrosis_editable: fibrosisLayer?.points || [],
-    };
+  // NO mutar estado: normaliza sin reasignar sobre layer.points
+  const lungPoints = lungLayer?.points ? toMulti(lungLayer.points) : [];
+  const fibPoints  = fibLayer?.points  ? toMulti(fibLayer.points)  : [];
 
-    try {
-      await axios.post(`/api/segment/save-edit/${folder}/${paddedIndex}`, jsonData);
+  const jsonData = {
+    lung_editable: lungPoints,
+    fibrosis_editable: fibPoints,
+  };
 
-      const updated = [...allLayersPerSlice];
-      updated[index] = currentLayers;
-      setAllLayersPerSlice(updated);
+  try {
+    await axios.post(`/api/segment/save-edit/${folder}/${paddedIndex}`, jsonData);
 
-      const px = { row: Number(dicomSpacing.row) || 1, col: Number(dicomSpacing.col) || 1 };
-      const dz = Number(dicomSpacing.slice) || 1;
-      const volumenGlobal = calcularVolumenEditableGlobal(updated, px, dz);
-      setEditableVolumen(volumenGlobal);
+    const updated = [...allLayersPerSlice];
+    updated[viewerIndex] = currentLayers;
+    setAllLayersPerSlice(updated);
 
-      await enviarVolumenABackend(
-        nss,
-        fechaSQL,
-        (volumenGlobal?.editableTotalVolume ?? undefined),
-        undefined,
-        true // manual = true ⇒ volumen_manual
-      );
-    } catch (err) {
-      console.error("Error al guardar edición/volumen:", err);
-    }
+    const px = { row: Number(dicomSpacing.row) || 1, col: Number(dicomSpacing.col) || 1 };
+    const dz = Number(dicomSpacing.slice) || 1;
+
+    const volumenGlobal = calcularVolumenEditableGlobal(updated, px, dz);
+    setEditableVolumen(volumenGlobal);
+
+    await enviarVolumenABackend(
+      nss,
+      fechaSQL,
+      (volumenGlobal?.editableTotalVolume ?? undefined),
+      undefined,
+      true
+    );
+  } catch (err) {
+    console.error("Error al guardar edición/volumen:", err);
   }
+}
+
 // --- Polling de estado de volcado/segmentación ---
 useEffect(() => {
   let stop = false;
@@ -900,19 +1175,11 @@ const handleMouseDown = (e) => {
       canvas.removeEventListener("mouseup", stopInteraction);
       canvas.removeEventListener("mouseleave", stopInteraction);
     };
-  }, [layers, selectedLayerIndex, isPanning, lastPanPosition, selectedIndex, recalcGlobalVolumeInstant]); // eslint-disable-line
+  }, [layers, selectedLayerIndex, isPanning, lastPanPosition, selectedIndex, recalcGlobalVolumeInstant]); 
 
   // ---------- Zoom ----------
   const handleZoomChange = (e) => {
-    const newScale = parseFloat(e.target.value);
-    setScale(newScale);
-    const element = viewerRef.current;
-    if (element) {
-      const viewport = cornerstone.getViewport(element);
-      viewport.scale = newScale;
-      cornerstone.setViewport(element, viewport);
-      drawOverlayLines();
-    }
+    setScale(parseFloat(e.target.value));
   };
 
   // ---------- UI ----------
@@ -1106,7 +1373,7 @@ const handleMouseDown = (e) => {
             )}
           </div>
 
-          <div className="main-panel" key={`${folder}-${selectedIndex ?? 'closed'}`}>
+          <div className="main-panel" key={folder}>
             <div ref={viewerRef} className="fullscreen-viewer" />
             <canvas ref={overlayRef} className="overlay-canvas" onClick={handleOverlayClick} />
           </div>
