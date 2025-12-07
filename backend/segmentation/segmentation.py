@@ -1,5 +1,16 @@
-# segmentation.py  (orden Z robusto + Δz robusto + logs por hilo + tf.keras consistente)
+# segmentation.py
+"""
+Segmentación de un estudio DICOM (CT) a nivel de slice usando un modelo U-Net y salida en JSON.
+Genera por cada slice:
+  - mask_XXX.json (contornos completos) y mask_XXX_simplified.json (contornos simplificados/editables)
+  - volumenes.json (ml) y valid_indices.json (mapeo índice->archivo fuente)
+Incluye orden Z robusto (IPP+IOP), cálculo Δz robusto y logging en paralelo para depuración.
 
+- El orden de slices depende de metadatos DICOM (IPP/IOP); si faltan, hace fallback a InstanceNumber/nombre.
+- Δz se estima con mediana de diferencias de zpos; si falla, usa SpacingBetweenSlices/SliceThickness.
+- El modelo trabaja en (256x256) y luego re-escala contornos a resolución original por slice.
+- Este script escribe en subcarpeta "segmentaciones_por_dicom" dentro del directorio de entrada.
+"""
 import os
 import glob
 import json

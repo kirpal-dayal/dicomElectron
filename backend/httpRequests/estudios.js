@@ -1,4 +1,5 @@
-// backend/routes/estudios.js
+//  * Rutas HTTP para consultar y actualizar información de estudios (tabla `estudio`)
+//  * y devolver métricas agregadas por estudio (conteo de imágenes desde tabla `imagen`).
 const express = require('express');
 const db = require('../connectionDb');
 
@@ -13,7 +14,7 @@ module.exports = (app) => {
   app.get(ENDPOINT, (req, res) => {
     const query = `
       SELECT
-        DATE_FORMAT(e.fecha, '%Y-%m-%d %H:%i:%s') AS fecha,  -- ✅ fecha lista para el front
+        DATE_FORMAT(e.fecha, '%Y-%m-%d %H:%i:%s') AS fecha,  
         e.nss_expediente,
         e.descripcion,
         e.diagnostico,

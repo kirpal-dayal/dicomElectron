@@ -19,7 +19,7 @@ function parseFolder(folder) {
   const fechaSQL = `${m[3]} ${m[4]}:${m[5]}:${m[6]}`; // YYYY-MM-DD HH:mm:ss
   return { nss, fechaSQL };
 }
-
+// lectura síncrona; se usa solo en post-proceso
 function readJSONMaybe(filePath) {
   try {
     if (!fs.existsSync(filePath)) return null;
@@ -30,7 +30,7 @@ function readJSONMaybe(filePath) {
     return null;
   }
 }
-
+// hace SELECT + UPDATE/INSERT (no atómico). Si hay concurrencia, conviene UNIQUE + ON DUPLICATE KEY.
 function upsertMascara({ nss, fechaSQL, num_tomo, tipo, clase, payload }, cb) {
   const sel = `
     SELECT 1 FROM mascara

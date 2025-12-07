@@ -1,18 +1,6 @@
 /**
  * backend/routes/imageRoutes.js
- *
- * Flujo:
- * 1) POST /api/image/upload-zip
- *    - Recibe ZIP (express-fileupload)
- *    - Upsert en estudio
- *    - Inserta DICOMs a BD (tabla imagen) con num_tomo consecutivo
- *    - Materializa imágenes de BD a directorio temporal
- *    - Ejecuta Python (segmentation.py)
- *    - Volca máscaras a BD y actualiza volumen (helpers de segmentRoutes)
- *    - Limpia el tmp al final (siempre)
- *
- * 2) GET /api/image/dicom-list/:folder  -> lista nombres "IM_XXXX.dcm" desde BD
- * 3) GET /api/image/dicom/:folder/:filename  -> devuelve el LONGBLOB del DICOM
+ * Rutas para subir estudios DICOM en ZIP y servirlos después desde la BD.
  */
 
 const express  = require('express');
@@ -94,7 +82,7 @@ function parseFolder(folder) {
 }
 
 function isDicomCandidate(zipPath) {
-  // Acepta *.dcm o archivos sin extensión (muchos PACS exportan así)
+  // Acepta *.dcm o archivos sin extensión
   return /\.dcm$/i.test(zipPath) || !/\.[^/]+$/.test(zipPath);
 }
 

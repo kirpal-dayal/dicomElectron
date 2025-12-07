@@ -1,95 +1,80 @@
 // src/components/DoctorView.js
 import React, { useState, useEffect } from 'react';
-import api from '../api';
 import { useNavigate } from 'react-router-dom';
+import api from '../api';
 
 import { descargarReporteGeneral } from '../utils/reportes/descargarReportes';
 
-import logoBlanco from '../assets/images/logo_graf_blanco.svg'; //blanco
+import logoBlanco from '../assets/images/logo_graf_blanco.svg';
 import '../styles/styles.css';
 import '../styles/variables.css';
 
 export default function DoctorView() {
-  const navigate = useNavigate()
-  const stored = JSON.parse(localStorage.getItem('user') || '{}')
-  const { username = 'Doctor', id: doctorId = null } = stored
+  const navigate = useNavigate();
+  const stored = JSON.parse(localStorage.getItem('user') || '{}');
+  const { username = 'Doctor', id: doctorId = null } = stored;
 
   // — Estados principales —
-  const [allPatients, setAllPatients] = useState([]) // lista maestra
-  const [patients, setPatients] = useState([])       // lista filtrada
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-  const [showForm, setShowForm] = useState(false)
+  const [allPatients, setAllPatients] = useState([]);
+  const [patients, setPatients] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [showForm, setShowForm] = useState(false);
 
   // — Modal de registro —
-  const [form, setForm] = useState({ nss: '', day: '', month: '', year: '', sex: '' })
-  const [saving, setSaving] = useState(false)
-  const [formError, setFormError] = useState('')
+  const [form, setForm] = useState({ nss: '', day: '', month: '', year: '', sex: '' });
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState('');
 
   // — Búsqueda por NSS —
-  const [searchTerm, setSearchTerm] = useState('')
+  const [searchTerm, setSearchTerm] = useState('');
 
   // — Opciones de fecha —
-  const days = Array.from({ length: 31 }, (_, i) => i + 1)
+  const days = Array.from({ length: 31 }, (_, i) => i + 1);
   const months = [
     'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
     'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
-  ]
-  const years = Array.from({ length: 100 }, (_, i) =>
-    new Date().getFullYear() - i
-  )
-
-  // — Traer todos los expedientes —
-  // src/components/DoctorView.js
-  // import api from '../api'; // en vez de import axios from 'axios'
-
-  // …
+  ];
+  const years = Array.from({ length: 100 }, (_, i) => new Date().getFullYear() - i);
 
   const fetchAll = async () => {
-    setLoading(true)
+    setLoading(true);
     try {
-      const { data } = await api.get('/api/expedientes')  // <- sin localhost
-      // Normaliza: garantiza un array aunque el backend devuelva {rows: [...]}, {patients: [...]}, etc.
+      const { data } = await api.get('/api/expedientes');
+
       const list =
         Array.isArray(data) ? data :
-          Array.isArray(data?.patients) ? data.patients :
-            Array.isArray(data?.rows) ? data.rows :
-              []
+        Array.isArray(data?.patients) ? data.patients :
+        Array.isArray(data?.rows) ? data.rows :
+        [];
 
-      setAllPatients(list)
-      setPatients(list)
-      setError(list.length ? '' : 'No se encontraron expedientes')
+      setAllPatients(list);
+      setPatients(list);
+      setError(list.length ? '' : 'No se encontraron expedientes');
     } catch (e) {
-      console.error('[DoctorView] /api/expedientes error:', e?.response?.data || e.message)
-      setError('No se pudieron cargar los expedientes')
-      setAllPatients([])
-      setPatients([])
+      console.error('[DoctorView] /api/expedientes error:', e?.response?.data || e.message);
+      setError('No se pudieron cargar los expedientes');
+      setAllPatients([]);
+      setPatients([]);
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
-
-
+  };
 
   useEffect(() => {
-    fetchAll()
-  }, [])
+    fetchAll();
+  }, []);
 
-  // — Live search: filtra localmente allPatients según searchTerm —
   useEffect(() => {
-    const term = searchTerm.trim()
-    const base = Array.isArray(allPatients) ? allPatients : []
+    const term = searchTerm.trim();
+    const base = Array.isArray(allPatients) ? allPatients : [];
     if (!term) {
-      setPatients(base)
-    } else {
-      setPatients(
-        base.filter(p => String(p?.nss ?? '').includes(term))
-      )
+      setPatients(base);
+      return;
     }
-  }, [searchTerm, allPatients])
+    setPatients(base.filter(p => String(p?.nss ?? '').includes(term)));
+  }, [searchTerm, allPatients]);
 
-
-  // — Handlers del modal —
   const handleChange = e => {
     const { name, value } = e.target;
     setForm(f => ({ ...f, [name]: value }));
@@ -97,59 +82,49 @@ export default function DoctorView() {
   };
 
   const handleSubmit = async e => {
-    e.preventDefault()
-    const { nss, day, month, year, sex } = form
+    e.preventDefault();
+    const { nss, day, month, year, sex } = form;
+
     if (!nss || !day || !month || !year || !sex) {
-      setFormError('Completa todos los campos')
-      return
+      setFormError('Completa todos los campos');
+      return;
     }
     if (!doctorId) {
-      setFormError('Doctor no identificado en sesión')
-      return
+      setFormError('Doctor no identificado en sesión');
+      return;
     }
-    setSaving(true)
+
+    setSaving(true);
     try {
-      const mm = String(month).padStart(2, '0')
-      const dd = String(day).padStart(2, '0')
-      const fechaNacimiento = `${year}-${mm}-${dd} 00:00:00`
+      const mm = String(month).padStart(2, '0');
+      const dd = String(day).padStart(2, '0');
+      const fechaNacimiento = `${year}-${mm}-${dd} 00:00:00`;
+
       await api.post('/api/expedientes', {
         nss,
         sexo: Number(sex),
         fechaNacimiento,
         idDocCreador: doctorId
-      })
-      await fetchAll()
-      setShowForm(false)
-      setForm({ nss: '', day: '', month: '', year: '', sex: '' })
+      });
+
+      await fetchAll();
+      setShowForm(false);
+      setForm({ nss: '', day: '', month: '', year: '', sex: '' });
     } catch (err) {
-      setFormError(err.response?.data || 'Error al crear expediente')
+      setFormError(err.response?.data || 'Error al crear expediente');
     } finally {
-      setSaving(false)
+      setSaving(false);
     }
-  }
+  };
 
-  // — Eliminar expediente —
-  const handleDelete = async () => {
-    const nss = prompt('NSS a eliminar:')
-    if (!nss || !window.confirm(`¿Eliminar expediente ${nss}?`)) return
-    try {
-      await api.delete(`/api/expedientes/${nss}`)
-      await fetchAll()
-    } catch {
-      alert('Error al eliminar expediente')
-    }
-  }
-
-  // — Logout y navegación —
   const handleLogout = () => {
-    localStorage.removeItem('user')
-    navigate('/', { replace: true })
-  }
-  // — Navegar a ViewPatient —
-  const handleViewPatient = (nss) => {
-    navigate(`/view-patient/${nss}`)
-  }
+    localStorage.removeItem('user');
+    navigate('/', { replace: true });
+  };
 
+  const handleViewPatient = (nss) => {
+    navigate(`/view-patient/${nss}`);
+  };
 
   return (
     <>
@@ -175,7 +150,6 @@ export default function DoctorView() {
           font-size:1.75rem; color:#111827; margin-bottom:.75rem;
         }
 
-        /* Barra de búsqueda */
         .search-bar {
           display:flex; gap:.5rem; margin-bottom:1.5rem;
         }
@@ -190,16 +164,11 @@ export default function DoctorView() {
         }
         .search-bar button:hover { background:#1d4ed8; }
 
-        table {
-          width:100%; border-collapse:collapse; font-size:1.05rem;
-        }
-        th, td {
-          padding:.85rem; text-align:left; border-bottom:1px solid #e5e7eb;
-        }
+        table { width:100%; border-collapse:collapse; font-size:1.05rem; }
+        th, td { padding:.85rem; text-align:left; border-bottom:1px solid #e5e7eb; }
         th { background:#f9fafb; font-size:1.1rem; }
         tr:hover { background:#f3f4f6; }
 
-        /* Modal */
         .modal-overlay {
           position:fixed; top:0; left:0; width:100%; height:100%;
           background:rgba(0,0,0,0.5); display:flex;
@@ -218,8 +187,7 @@ export default function DoctorView() {
         .form-group label {
           display:block; margin-bottom:.5rem; font-size:1.1rem; color:#374151;
         }
-        .form-group input,
-        .form-group select {
+        .form-group input, .form-group select {
           width:100%; padding:.75rem; font-size:1.1rem;
           border:1px solid #d1d5db; border-radius:4px;
         }
@@ -233,15 +201,16 @@ export default function DoctorView() {
         .error { color:#b91c1c; margin-top:.5rem; }
       `}</style>
 
-      {/* Navbar */}
+      {/* Header propio (sin NavBar component) */}
       <header className="navbar">
         <img src={logoBlanco} alt="Logo" style={{ display: 'block', margin: '10px', height: '90%' }} />
         <div className="nav-buttons">
           <button className="btn" onClick={() => setShowForm(true)}>
             Añadir Paciente
           </button>
-          {/* <button className='btn' onClick={descargarReporteGeneral}>Descargar reporte general (.xlsx)</button> */}
-          <button className='btn' onClick={descargarReporteGeneral}>Descargar reporte general (.xlsx)📋</button>
+          <button className="btn" onClick={descargarReporteGeneral}>
+            Descargar reporte general (.xlsx)
+          </button>
           <button className="btn" onClick={handleLogout}>
             Salir
           </button>
@@ -253,7 +222,7 @@ export default function DoctorView() {
           <h1>Bienvenido, {username}</h1>
           <p>Aquí puedes gestionar los expedientes de tus pacientes.</p>
           <br />
-          {/* Barra de búsqueda */}
+
           <div className="search-bar">
             <input
               type="text"
@@ -267,6 +236,7 @@ export default function DoctorView() {
           {loading && <p>Cargando expedientes…</p>}
           {error && <p className="error">{error}</p>}
           {!loading && !patients.length && <p>No hay pacientes aún.</p>}
+
           {patients.length > 0 && (
             <table>
               <thead>
@@ -282,17 +252,13 @@ export default function DoctorView() {
                   <tr key={p.nss}>
                     <td>{p.nss}</td>
                     <td>{new Date(p.fecha_nacimiento).toLocaleDateString()}</td>
-                    <td>{
-                      Number(p.sexo) === 1 ? 'Hombre'
-                        : Number(p.sexo) === 2 ? 'Mujer'
-                          : 'Otro'
-                    }</td>
-
                     <td>
-                      <button
-                        className="btn-primary"
-                        onClick={() => handleViewPatient(p.nss)}
-                      >
+                      {Number(p.sexo) === 1 ? 'Hombre'
+                        : Number(p.sexo) === 2 ? 'Mujer'
+                        : 'Otro'}
+                    </td>
+                    <td>
+                      <button className="btn-primary" onClick={() => handleViewPatient(p.nss)}>
                         Ver
                       </button>
                     </td>
@@ -304,87 +270,51 @@ export default function DoctorView() {
         </div>
       </div>
 
-      {/* Modal de registro */}
       {showForm && (
         <div className="modal-overlay">
           <div className="modal-content">
-            <button
-              className="modal-close"
-              onClick={() => setShowForm(false)}
-            >
-              ×
-            </button>
+            <button className="modal-close" onClick={() => setShowForm(false)}>×</button>
+
             <h2>Registrar Expediente</h2>
             <form onSubmit={handleSubmit}>
               <div className="form-group">
                 <label htmlFor="nss">NSS</label>
-                <input
-                  id="nss"
-                  name="nss"
-                  value={form.nss}
-                  onChange={handleChange}
-                  required
-                />
+                <input id="nss" name="nss" value={form.nss} onChange={handleChange} required />
               </div>
+
               <div className="form-group">
                 <label>Fecha de Nacimiento</label>
                 <div style={{ display: 'flex', gap: '0.5rem' }}>
-                  <select
-                    name="day"
-                    value={form.day}
-                    onChange={handleChange}
-                    required
-                  >
+                  <select name="day" value={form.day} onChange={handleChange} required>
                     <option value="">Día</option>
-                    {days.map(d => (
-                      <option key={d} value={d}>{d}</option>
-                    ))}
+                    {days.map(d => <option key={d} value={d}>{d}</option>)}
                   </select>
-                  <select
-                    name="month"
-                    value={form.month}
-                    onChange={handleChange}
-                    required
-                  >
+
+                  <select name="month" value={form.month} onChange={handleChange} required>
                     <option value="">Mes</option>
-                    {months.map((m, i) => (
-                      <option key={i} value={i + 1}>{m}</option>
-                    ))}
+                    {months.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
                   </select>
-                  <select
-                    name="year"
-                    value={form.year}
-                    onChange={handleChange}
-                    required
-                  >
+
+                  <select name="year" value={form.year} onChange={handleChange} required>
                     <option value="">Año</option>
-                    {years.map(y => (
-                      <option key={y} value={y}>{y}</option>
-                    ))}
+                    {years.map(y => <option key={y} value={y}>{y}</option>)}
                   </select>
                 </div>
               </div>
+
               <div className="form-group">
                 <label htmlFor="sex">Sexo</label>
-                <select
-                  id="sex"
-                  name="sex"
-                  value={form.sex}
-                  onChange={handleChange}
-                  required
-                >
+                <select id="sex" name="sex" value={form.sex} onChange={handleChange} required>
                   <option value="">Seleccionar</option>
                   <option value="1">Hombre</option>
                   <option value="2">Mujer</option>
                   <option value="3">Otro</option>
                 </select>
               </div>
+
               {formError && <p className="error">{formError}</p>}
-              <button
-                className="btn-primary"
-                type="submit"
-                disabled={saving}
-              >
+
+              <button className="btn-primary" type="submit" disabled={saving}>
                 {saving ? 'Guardando…' : 'Guardar Expediente'}
               </button>
             </form>
@@ -392,5 +322,5 @@ export default function DoctorView() {
         </div>
       )}
     </>
-  )
+  );
 }

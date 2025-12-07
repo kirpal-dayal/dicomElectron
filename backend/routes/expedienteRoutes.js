@@ -1,6 +1,10 @@
 /**
  * routes/expedienteRoutes.js
- * Rutas de EXPEDIENTE del paciente (lista, crear, eliminar) + estudios por NSS.
+ *
+ * Rutas para gestionar EXPEDIENTES de pacientes y sus ESTUDIOS asociados.
+ * - Expedientes: listar, crear/actualizar (upsert) y eliminar por NSS.
+ * - Estudios: crear/actualizar por (NSS + fecha) sin “pisar” valores existentes con NULL,
+ *   y obtener un expediente junto con todos sus estudios.
  */
 const express = require('express');
 const db = require('../connectionDb');

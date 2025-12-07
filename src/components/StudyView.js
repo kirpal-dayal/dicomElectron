@@ -253,14 +253,15 @@ useEffect(() => {
         (file) => `/api/image/dicom/${folder}/${encodeURIComponent(file)}`
       );
 
-      // ✅ ORDEN FINAL por meta (IPP/IOP + auto-inversión si hace falta)
+      // ORDEN FINAL por meta (IPP/IOP + auto-inversión si hace falta)
       const finalSorted = await sortDicomsByMeta(urls);
 
       if (!cancelled) {
         setDicomList(finalSorted);
         // opcional: auto-seleccionar primera imagen
-        if (finalSorted.length > 0) setSelectedIndex(0);
-        console.log("FIRST/LAST", finalSorted[0], finalSorted[finalSorted.length - 1]);
+        setSelectedIndex(null);
+        // if (finalSorted.length > 0) setSelectedIndex(0);
+        // console.log("FIRST/LAST", finalSorted[0], finalSorted[finalSorted.length - 1]);
       }
     } catch (err) {
       console.error(err);
