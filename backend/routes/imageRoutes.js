@@ -3,16 +3,17 @@
  * Rutas para subir estudios DICOM en ZIP y servirlos después desde la BD.
  */
 
-const express  = require('express');
-const fs       = require('fs/promises');
-const fscore   = require('fs');
-const path     = require('path');
-const os       = require('os');
+const express = require('express');
+const fs = require('fs/promises');
+const fscore = require('fs');
+const path = require('path');
+const logger = require(path.join(__dirname, '../../logging/logger'));
+const os = require('os');
 const unzipper = require('unzipper');
 const { exec } = require('child_process');
-const db       = require('../connectionDb');
+const db = require('../connectionDb');
 
-const router   = express.Router();
+const router = express.Router();
 
 // Helpers exportados desde segmentRoutes
 const { guardarMascarasEnBDFromDir, updateEstudioVolumenFromDir } = require('./segmentRoutes');
@@ -67,7 +68,7 @@ async function materializeStudyToTmp(nss, fecha) {
     await fs.writeFile(path.join(tmpDir, fname), r.imagen);
     written++;
   }
-  console.log('[MATERIALIZE] Escribió %d DICOMs en %s', written, tmpDir);
+  logger.info('[MATERIALIZE] Escribió %d DICOMs en %s', written, tmpDir);
   return tmpDir;
 }
 
@@ -89,7 +90,7 @@ function isDicomCandidate(zipPath) {
 async function safeListDir(dir, label) {
   try {
     const list = await fs.readdir(dir);
-    console.log('[LIST] %s (%s) → %d items', label, dir, list.length);
+    logger.info('[LIST] %s (%s) → %d items', label, dir, list.length);
     console.log('[LIST] %s sample:', label, list.slice(0, 50));
     return list;
   } catch (e) {
@@ -101,7 +102,7 @@ async function safeListDir(dir, label) {
 // ========= Endpoints =========
 
 // POST /api/image/upload-zip
-router.post('/upload-zip', async (req, res) => {
+router.post('/upload-zip', async (req, res, next) => {
   try {
     if (!req.files || !req.files.zipFile) {
       return res.status(400).send('No se recibió el archivo ZIP');
@@ -135,21 +136,25 @@ router.post('/upload-zip', async (req, res) => {
         await insertImagen(nss, fecha, num_tomo, buf);
         inserted++; num_tomo++;
       } catch (e) {
-        console.error('[UPLOAD] Error insertando %s: %s', entry.path, e.message);
+        logger.error('[UPLOAD] Error insertando %s: %s', entry.path, e.message);
       }
     }
-    console.log('[UPLOAD] DICOMs insertados en BD: %d | ignorados (no dicom): %d', inserted, skipped);
+    logger.info('[UPLOAD] DICOMs insertados en BD: %d | ignorados (no dicom): %d', inserted, skipped);
 
     // Lanza segmentación
-    const tmpDir = await materializeStudyToTmp(nss, fecha);
-    console.log('[SEG] Materializado en %s', tmpDir);
+    try {
+      const tmpDir = await materializeStudyToTmp(nss, fecha);
+      logger.info('[SEG] Materializado en %s', tmpDir);
+    } catch (e) {
+      console.error('Error al materializar el estudio:', e.message);
+    }
 
     // Lista del tmp antes de segmentar
     await safeListDir(tmpDir, 'tmpDir pre-segment');
 
     const segmentationScript = path.join(__dirname, '../segmentation/segmentation.py');
     const cmd = `python -u "${segmentationScript}" "${tmpDir}" --debug`;
-    console.log('[SEG] Ejecutando:', cmd);
+    logger.info('[SEG] Ejecutando: %s', cmd);
 
     const child = exec(cmd, { env: { ...process.env } });
 
@@ -157,12 +162,12 @@ router.post('/upload-zip', async (req, res) => {
     child.stderr.on('data', d => process.stderr.write(String(d)));
 
     child.on('error', (err) => {
-      console.error('[SEG] Error al lanzar proceso Python:', err.message);
+      logger.error('[SEG] Error al lanzar proceso Python: %s', err.message);
     });
 
     child.on('close', async (code) => {
       try {
-        console.log('[SEG] exit code =', code);
+        logger.info('[SEG] exit code = %d', code);
 
         // DEBUG: lista dir temporal + subcarpeta de segmentación
         const listTop = await safeListDir(tmpDir, 'tmpDir post-segment');
@@ -174,8 +179,8 @@ router.post('/upload-zip', async (req, res) => {
 
         // Métricas de salida
         const masksAuto = listSeg.filter(f => /^mask_\d+\.json$/i.test(f)).length;
-        const masksMan  = listSeg.filter(f => /^mask_\d+_simplified\.json$/i.test(f)).length;
-        const hasVol    = listSeg.includes('volumenes.json') || listTop.includes('volumenes.json');
+        const masksMan = listSeg.filter(f => /^mask_\d+_simplified\.json$/i.test(f)).length;
+        const hasVol = listSeg.includes('volumenes.json') || listTop.includes('volumenes.json');
 
         console.log('[SEG] Conteo → auto:%d manual_simplified:%d volumenes:%s',
           masksAuto, masksMan, hasVol ? 'sí' : 'no');
@@ -190,17 +195,17 @@ router.post('/upload-zip', async (req, res) => {
           console.log('[POST-SEG] Actualizando volumen_automatico en estudio…');
           await updateEstudioVolumenFromDir(tmpDir, nss, fecha);
 
-          console.log('[POST-SEG] Finalizado volcado a BD.');
+          logger.info('[POST-SEG] Finalizado volcado a BD.');
         }
       } catch (e) {
-        console.error('Error post-segmentación (guardado de máscaras/volumen):', e);
+        logger.error('Error post-segmentación (guardado de máscaras/volumen):', e);
       } finally {
         // Borrar tmpDir SOLO al final
         try {
           await fs.rm(tmpDir, { recursive: true, force: true });
-          console.log('[SEG] tmpDir eliminado:', tmpDir);
+          logger.info('[SEG] tmpDir eliminado: %s', tmpDir);
         } catch (err) {
-          console.warn('[SEG] no se pudo eliminar tmpDir:', err.message);
+          logger.warn('[SEG] no se pudo eliminar tmpDir: %s', err.message);
         }
       }
     });
@@ -214,8 +219,9 @@ router.post('/upload-zip', async (req, res) => {
     });
 
   } catch (err) {
-    console.error('Error en /upload-zip:', err);
-    res.status(500).send('Error al procesar el ZIP');
+    err.status = 500;
+    err.message = `HTTP ${err.status} - ${err.message || ''} - Error en /upload-zip, al procesar el ZIP`;
+    logger.error(err.message);
   }
 });
 
@@ -229,18 +235,20 @@ router.get('/dicom-list/:folder', (req, res) => {
     [parsed.nss, parsed.fechaSQL],
     (err, rows) => {
       if (err) {
-        console.error('[DICOM-LIST] DB error:', err.message);
+        err.status = 500;
+        err.message = `HTTP ${err.status} - ${err.message || ''} - Error en /dicom-list/${req.params.folder}, al consultar la BD`;
+        logger.error('[DICOM-LIST] DB error: %s', err.message);
         return res.status(500).json({ error: 'DB error' });
       }
-      const files = (rows || []).map(r => `IM_${String(r.num_tomo).padStart(4,'0')}.dcm`);
-      console.log('[DICOM-LIST] count:', files.length);
+      const files = (rows || []).map(r => `IM_${String(r.num_tomo).padStart(4, '0')}.dcm`);
+      //logger.info('[DICOM-LIST] count: %d', files.length);
       res.json(files);
     }
   );
 });
 
 // GET /api/image/dicom/:folder/:filename  -> sirve LONGBLOB del num_tomo
-router.get('/dicom/:folder/:filename(*)', (req, res) => {
+router.get('/dicom/:folder/:filename(*)', (req, res, next) => {
   const parsed = parseFolder(req.params.folder);
   if (!parsed) return res.status(400).send('folder inválido');
 
@@ -254,8 +262,9 @@ router.get('/dicom/:folder/:filename(*)', (req, res) => {
     [parsed.nss, parsed.fechaSQL, num_tomo],
     (err, rows) => {
       if (err) {
-        console.error('[DICOM] DB error:', err.message);
-        return res.status(500).send('DB error');
+        err.status = 500;
+        err.message = `HTTP ${err.status} - ${err.message || ''} - Error en /dicom/${req.params.folder}/${fn}, al consultar la BD`;
+        return next(err);
       }
       if (!rows || rows.length === 0) return res.status(404).send('No encontrado');
 

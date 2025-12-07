@@ -6,6 +6,8 @@
  * - Estudios: crear/actualizar por (NSS + fecha) sin “pisar” valores existentes con NULL,
  *   y obtener un expediente junto con todos sus estudios.
  */
+const path = require('path');
+const logger = require(path.join(__dirname, '../../logging/logger'));
 const express = require('express');
 const db = require('../connectionDb');
 const router = express.Router();
@@ -15,7 +17,7 @@ const router = express.Router();
  * ========================= */
 
 // GET /api/expedientes  -> lista todos los expedientes
-router.get('/expedientes', (req, res) => {
+router.get('/expedientes', (req, res, next) => {
   const sql = `
     SELECT nss, sexo, fecha_nacimiento, fecha_creacion
     FROM expediente
@@ -23,15 +25,16 @@ router.get('/expedientes', (req, res) => {
   `;
   db.query(sql, (err, rows) => {
     if (err) {
-      console.error('[expedientes][GET] DB error:', err);
-      return res.status(500).send('Error al listar expedientes');
+      err.status = 500;
+      err.message = `HTTP ${err.status} - ${err.message || ''} - Error al listar expedientes`;
+      return next(err);
     }
     res.json(rows || []);
   });
 });
 
 // POST /api/expedientes  -> crea/actualiza un expediente (lo que usa DoctorView)
-router.post('/expedientes', (req, res) => {
+router.post('/expedientes', (req, res, next) => {
   const { nss, sexo, fechaNacimiento, idDocCreador = null } = req.body || {};
   if (!nss || !sexo || !fechaNacimiento) {
     return res.status(400).send('Faltan campos: nss, sexo, fechaNacimiento');
@@ -47,28 +50,32 @@ const sql = `
 `;
   db.query(sql, [nss, Number(sexo), fechaNacimiento, idDocCreador], (err) => {
     if (err) {
-      console.error('[expedientes][POST] DB error:', err);
-      return res.status(500).send('Error al crear/actualizar expediente');
+      err.status = 500;
+      err.message = `HTTP ${err.status} - ${err.message || ''} - Error al crear/actualizar expediente`;
+      return next(err);
     }
     res.status(201).send('Expediente creado/actualizado');
+    logger.info(`Expediente ${nss} creado/actualizado por doctor ${idDocCreador || 'N/A'}`);
   });
 });
 
 // DELETE /api/expedientes/:nss -> elimina expediente
-router.delete('/expedientes/:nss', (req, res) => {
+router.delete('/expedientes/:nss', (req, res, next) => {
   const { nss } = req.params;
   if (!nss) return res.status(400).send('Falta NSS');
 
   const sql = `DELETE FROM expediente WHERE nss = ?`;
   db.query(sql, [nss], (err, result) => {
     if (err) {
-      console.error('[expedientes][DELETE] DB error:', err);
-      return res.status(500).send('Error al eliminar expediente');
+      err.status = 500;
+      err.message = `HTTP ${err.status} - ${err.message || ''} - Error al eliminar expediente`;
+      return next(err);
     }
     if (result.affectedRows === 0) {
       return res.status(404).send('Expediente no encontrado');
     }
     res.sendStatus(204); // eliminado
+    logger.info(`Expediente ${nss} eliminado`);
   });
 });
 
@@ -78,7 +85,7 @@ router.delete('/expedientes/:nss', (req, res) => {
 
 // POST /api/:nss/studies  -> crear/actualizar estudio
 // POST /api/:nss/studies  -> crear/actualizar estudio (sin pisar con NULL)
-router.post('/:nss/studies', (req, res) => {
+router.post('/:nss/studies', (req, res, next) => {
   const { nss } = req.params;
 
   // Normalizamos: si la clave NO viene, no la tocamos; si viene null/undefined => COALESCE la ignora
@@ -114,14 +121,16 @@ router.post('/:nss/studies', (req, res) => {
     fecha,
   ];
 
-  db.query(updSql, updParams, (err, result) => {
+  db.query(updSql, updParams, (err, result, next) => {
     if (err) {
-      console.error('[studies][POST][UPDATE] DB error:', err);
-      return res.status(500).send('Error al actualizar estudio');
+      err.status = 500;
+      err.message = `HTTP ${err.status} - ${err.message || ''} - Error al actualizar estudio`;
+      return next(err);
     }
 
     if (result.affectedRows > 0) {
       // Ya existía y actualizamos sin pisar con NULL
+      //logger.info(`Estudio para expediente ${nss} en fecha ${fecha} actualizado`);
       return res.status(200).send('Estudio actualizado');
     }
 
@@ -149,9 +158,11 @@ router.post('/:nss/studies', (req, res) => {
 
     db.query(insSql, insParams, (err2) => {
       if (err2) {
-        console.error('[studies][POST][INSERT] DB error:', err2);
-        return res.status(500).send('Error al crear estudio');
+        err2.status = 500;
+        err2.message = `HTTP ${err2.status} - ${err2.message || ''} - Error al crear estudio`;
+        return next(err2);
       }
+      logger.info(`Estudio para expediente ${nss} en fecha ${fecha} creado/actualizado`);
       return res.status(201).send('Estudio creado');
     });
   });
@@ -159,7 +170,7 @@ router.post('/:nss/studies', (req, res) => {
 
 
 // GET /api/expedientes/:nss -> trae un expediente + todos sus estudios
-router.get('/expedientes/:nss', (req, res) => {
+router.get('/expedientes/:nss', (req, res, next) => {
   const { nss } = req.params;
 
   const expSql = `
@@ -169,8 +180,9 @@ router.get('/expedientes/:nss', (req, res) => {
   `;
   db.query(expSql, [nss], (err, expRows) => {
     if (err) {
-      console.error('[expediente][GET] DB error:', err);
-      return res.status(500).send('Error al buscar expediente');
+      err.status = 500;
+      err.message = `HTTP ${err.status} - ${err.message || ''} - Error al buscar expediente`;
+      return next(err);
     }
     if (!expRows.length) return res.status(404).send('Expediente no encontrado');
 
@@ -184,8 +196,9 @@ router.get('/expedientes/:nss', (req, res) => {
     `;
     db.query(estSql, [nss], (err2, estRows) => {
       if (err2) {
-        console.error('[expediente][GET studies] DB error:', err2);
-        return res.status(500).send('Error al cargar estudios');
+        err2.status = 500;
+        err2.message = `HTTP ${err2.status} - ${err2.message || ''} - Error al cargar estudios`;
+        return next(err2);
       }
       expediente.studies = estRows;
       res.json(expediente);
