@@ -21,9 +21,6 @@ const db = require('../connectionDb');
 require('dotenv').config();
 const key = process.env.ENCRYPTION_KEY;
 
-// En producción conviene fallar rápido si falta la key:
-// if (!key) throw new Error('ENCRYPTION_KEY no definida en variables de entorno');
-
 router.post('/login', (req, res, next) => {
   const { id, password } = req.body;
 

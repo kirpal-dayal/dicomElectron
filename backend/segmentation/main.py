@@ -1,17 +1,3 @@
-# import os
-# import segmentation
-# os.environ["SM_FRAMEWORK"] = "tf.keras"
-
-
-# if __name__ == '__main__':
-#     # Resizing images, if needed
-#     SIZE_X = 256
-#     SIZE_Y = 256
-#     size = [SIZE_X, SIZE_Y]
-#     n_classes = 3  # Number of classes for segmentation
-
-#     original_test_path = r"CT53"
-
 #     segmentation.dicom_segmentation(original_test_path, size, n_classes)
 import sys
 import os

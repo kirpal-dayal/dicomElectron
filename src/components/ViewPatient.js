@@ -314,7 +314,7 @@ export default function ViewPatient() {
 
     try {
       await api.post("/api/image/upload-zip", fd, { headers: { "Content-Type": "multipart/form-data" } });
-      alert("ZIP subido correctamente");
+      alert("Estudio procesado");
       await fetchRecord();
     } catch (e) {
       console.error(e);

@@ -100,13 +100,14 @@ async function safeListDir(dir, label) {
 }
 
 // ========= Endpoints =========
-
 // POST /api/image/upload-zip
 router.post('/upload-zip', async (req, res, next) => {
+  let tmpDir = null; //visible para todo el handler 
   try {
     if (!req.files || !req.files.zipFile) {
       return res.status(400).send('No se recibió el archivo ZIP');
     }
+
     const zipFile = req.files.zipFile; // express-fileupload
     let { nss, fecha, descripcion } = req.body;
     if (!nss || !fecha) return res.status(400).send('Faltan parámetros: nss, fecha');
@@ -114,18 +115,16 @@ router.post('/upload-zip', async (req, res, next) => {
     // Normaliza fecha a "YYYY-MM-DD HH:MM:SS"
     fecha = fecha.replace('T', ' ').split('.')[0];
 
-    console.log('[UPLOAD] NSS: %s Fecha: %s ZIP bytes: %s', nss, fecha, zipFile.data?.length ?? 0);
+    logger.info('[UPLOAD] NSS=%s Fecha=%s ZIP bytes=%s', nss, fecha, zipFile.data?.length ?? 0);
 
     await upsertEstudio(nss, fecha, descripcion || null);
 
     // Abrir ZIP en memoria
     const directory = await unzipper.Open.buffer(zipFile.data);
     let files = directory.files.filter(f => f.type === 'File');
-    // Orden estable (por nombre de entrada en el ZIP)
     files.sort((a, b) => a.path.localeCompare(b.path, 'en'));
 
-    console.log('[ZIP] Entradas en ZIP: %d', files.length);
-    console.log('[ZIP] Muestra:', files.slice(0, 10).map(f => f.path));
+    logger.info('[ZIP] Entradas=%d | sample=%j', files.length, files.slice(0, 10).map(f => f.path));
 
     // Insertar DICOMs en BD
     let num_tomo = 1, inserted = 0, skipped = 0;
@@ -139,89 +138,70 @@ router.post('/upload-zip', async (req, res, next) => {
         logger.error('[UPLOAD] Error insertando %s: %s', entry.path, e.message);
       }
     }
-    logger.info('[UPLOAD] DICOMs insertados en BD: %d | ignorados (no dicom): %d', inserted, skipped);
+    logger.info('[UPLOAD] Insertados=%d | Ignorados(no dicom)=%d', inserted, skipped);
 
-    // Lanza segmentación
-    try {
-      const tmpDir = await materializeStudyToTmp(nss, fecha);
-      logger.info('[SEG] Materializado en %s', tmpDir);
-    } catch (e) {
-      console.error('Error al materializar el estudio:', e.message);
-    }
+    // Materializar a /tmp (⚠️ si falla aquí no podemos correr segmentación)
+    tmpDir = await materializeStudyToTmp(nss, fecha);
+    logger.info('[SEG] Materializado en %s', tmpDir);
 
-    // Lista del tmp antes de segmentar
     await safeListDir(tmpDir, 'tmpDir pre-segment');
 
     const segmentationScript = path.join(__dirname, '../segmentation/segmentation.py');
     const cmd = `python -u "${segmentationScript}" "${tmpDir}" --debug`;
     logger.info('[SEG] Ejecutando: %s', cmd);
 
-    const child = exec(cmd, { env: { ...process.env } });
+    //Esperar a que termine Python + post-procesos
+    const exitCode = await new Promise((resolve, reject) => {
+      const child = exec(cmd, { env: { ...process.env } });
 
-    child.stdout.on('data', d => process.stdout.write(String(d)));
-    child.stderr.on('data', d => process.stderr.write(String(d)));
+      child.stdout.on('data', d => process.stdout.write(String(d)));
+      child.stderr.on('data', d => process.stderr.write(String(d)));
 
-    child.on('error', (err) => {
-      logger.error('[SEG] Error al lanzar proceso Python: %s', err.message);
+      child.on('error', (err) => reject(err));
+      child.on('close', (code) => resolve(code));
     });
 
-    child.on('close', async (code) => {
-      try {
-        logger.info('[SEG] exit code = %d', code);
+    logger.info('[SEG] exit code = %d', exitCode);
 
-        // DEBUG: lista dir temporal + subcarpeta de segmentación
-        const listTop = await safeListDir(tmpDir, 'tmpDir post-segment');
-        const segSub = path.join(tmpDir, 'segmentaciones_por_dicom');
-        const segExists = fscore.existsSync(segSub);
-        console.log('[SEG] segSub exists =', segExists, '→', segSub);
-        let listSeg = [];
-        if (segExists) listSeg = await safeListDir(segSub, 'segmentaciones_por_dicom');
+    // Post-segmentación (solo si Python terminó OK)
+    if (exitCode !== 0) {
+      // Aquí decides si devolver 500 o 200 con warning
+      return res.status(500).json({
+        success: false,
+        message: `Segmentación falló (exit code ${exitCode})`,
+        total_insertadas: inserted,
+        ignoradas: skipped
+      });
+    }
 
-        // Métricas de salida
-        const masksAuto = listSeg.filter(f => /^mask_\d+\.json$/i.test(f)).length;
-        const masksMan = listSeg.filter(f => /^mask_\d+_simplified\.json$/i.test(f)).length;
-        const hasVol = listSeg.includes('volumenes.json') || listTop.includes('volumenes.json');
+    // IMPORTANTE: insertar en BD **antes** de borrar tmpDir
+    await guardarMascarasEnBDFromDir(tmpDir, nss, fecha);
+    await updateEstudioVolumenFromDir(tmpDir, nss, fecha);
 
-        console.log('[SEG] Conteo → auto:%d manual_simplified:%d volumenes:%s',
-          masksAuto, masksMan, hasVol ? 'sí' : 'no');
+    logger.info('[POST-SEG] Finalizado volcado a BD.');
 
-        if (code !== 0) {
-          console.error('[SEG] Segmentación terminó con código %d', code);
-        } else {
-          // IMPORTANTE: insertar en BD **antes** de borrar tmpDir
-          console.log('[POST-SEG] Volcando máscaras a BD… nss=%s fecha=%s', nss, fecha);
-          await guardarMascarasEnBDFromDir(tmpDir, nss, fecha);
-
-          console.log('[POST-SEG] Actualizando volumen_automatico en estudio…');
-          await updateEstudioVolumenFromDir(tmpDir, nss, fecha);
-
-          logger.info('[POST-SEG] Finalizado volcado a BD.');
-        }
-      } catch (e) {
-        logger.error('Error post-segmentación (guardado de máscaras/volumen):', e);
-      } finally {
-        // Borrar tmpDir SOLO al final
-        try {
-          await fs.rm(tmpDir, { recursive: true, force: true });
-          logger.info('[SEG] tmpDir eliminado: %s', tmpDir);
-        } catch (err) {
-          logger.warn('[SEG] no se pudo eliminar tmpDir: %s', err.message);
-        }
-      }
-    });
-
-    // Responder YA, sin bloquear al cliente
-    res.json({
+    return res.json({
       success: true,
-      message: `ZIP recibido. Imágenes guardadas en BD. Segmentación lanzada.`,
+      message: 'ZIP procesado. Segmentación y volcado a BD finalizados.',
       total_insertadas: inserted,
       ignoradas: skipped
     });
 
   } catch (err) {
-    err.status = 500;
+    err.status = err.status || 500;
     err.message = `HTTP ${err.status} - ${err.message || ''} - Error en /upload-zip, al procesar el ZIP`;
     logger.error(err.message);
+    return next(err);
+  } finally {
+    // Limpieza final (si tmpDir fue creado)
+    if (tmpDir) {
+      try {
+        await fs.rm(tmpDir, { recursive: true, force: true });
+        logger.info('[SEG] tmpDir eliminado: %s', tmpDir);
+      } catch (e) {
+        logger.warn('[SEG] no se pudo eliminar tmpDir: %s', e.message);
+      }
+    }
   }
 });
 

@@ -84,7 +84,6 @@ router.delete('/expedientes/:nss', (req, res, next) => {
  * ========================= */
 
 // POST /api/:nss/studies  -> crear/actualizar estudio
-// POST /api/:nss/studies  -> crear/actualizar estudio (sin pisar con NULL)
 router.post('/:nss/studies', (req, res, next) => {
   const { nss } = req.params;
 
