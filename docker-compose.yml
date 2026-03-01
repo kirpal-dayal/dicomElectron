@@ -23,7 +23,7 @@ services:
       - ./creacionBD_mysql/creacion_tablas_v07.sql:/docker-entrypoint-initdb.d/creacion_tablas_v07.sql.in:ro
 
     healthcheck:
-      test: ["CMD","mysqladmin","ping","-h","127.0.0.1","-p${MYSQL_ROOT_PASSWORD}"]
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u\"$MYSQL_USER\" -p\"$MYSQL_PASSWORD\" --silent"]
       interval: 5s
       timeout: 5s
       retries: 30
